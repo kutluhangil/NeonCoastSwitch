@@ -134,6 +134,12 @@ The readouts show the clock, the speed in mph, and a status: *Cruising, Speeding
 
 <img src="docs/media/divider.svg" width="100%" alt="">
 
+## Türkçe özet
+
+**Neon Coast Switch**, içinde 176 × 50 piksellik bir sahil kasabası olan büyük, hap şeklinde bir aç-kapa düğmesi. Cam düğmeyi kaydırdıkça akşam altın saatten gece yarısına ilerliyor; pencereler, sokak lambaları ve neon tabelalar düğmenin arkasında yanıyor. Güneş gözlüklü bir köpeğin sürdüğü üstü açık araba, trafik, polis kovalamacası ve gece yarısı bir soygun sahnesi var. Sahnenin her yerine dokunulabiliyor ve her dokunuşun kendi sentezlenmiş sesi var. Tek bir WebGL2 shader, tüm sesler Web Audio ile sentezleniyor, hiçbir kütüphane yok.
+
+<img src="docs/media/divider.svg" width="100%" alt="">
+
 ## Development
 
 `index.html` is the whole piece: a single self-contained file. The source lives in `src/` as plain scripts, and `scripts/build.mjs` concatenates them into that file. There is no bundler, no minifier and no runtime dependency.
@@ -165,5 +171,6 @@ docs/      plan and README media
 
 <div align="center">
 <br>
+<a href="https://github.com/kutluhangil"><img src="docs/media/signature.svg" width="100%" alt="Built by kutluhangil"></a>
 <sub>Material Studies · No. 066 · everything original: invented names, no real brands, no samples.</sub>
 </div>
