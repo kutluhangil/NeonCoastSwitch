@@ -1,0 +1,5 @@
+node_modules/
+shots/
+.DS_Store
+# Private prompt collection (other projects too); kept local
+docs/material-studies-prompts.md

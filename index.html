@@ -1,0 +1,4550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neon Coast Switch</title>
+<meta name="description" content="Material Studies No. 066 — a pixel-art coast town inside a glass toggle switch. WebGL + Web Audio.">
+<style>
+  :root {
+    --bg: #f6d3bf;
+    --ink: #3a2131;
+    --muted: rgba(58, 33, 49, 0.8);
+    --line: rgba(58, 33, 49, 0.22);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  main {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: clamp(28px, 6vw, 64px) 16px 48px;
+  }
+  .kicker {
+    margin: 0;
+    font: 500 12px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  h1 {
+    margin: 10px 0 6px;
+    font-style: italic;
+    font-weight: 400;
+    font-size: clamp(42px, 8vw, 84px);
+    line-height: 0.98;
+    letter-spacing: -0.015em;
+  }
+  .caption {
+    margin: 0;
+    max-width: 36em;
+    font-size: clamp(16px, 2.2vw, 19px);
+    line-height: 1.45;
+    color: var(--muted);
+  }
+  .stage {
+    display: flex;
+    justify-content: center;
+    margin: clamp(18px, 4vw, 36px) 0 clamp(8px, 2vw, 16px);
+  }
+  canvas {
+    display: block;
+    max-width: 100%;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+    outline: none;
+    border-radius: 48px;
+  }
+  canvas:focus-visible { box-shadow: 0 0 0 2px var(--line); }
+  .readouts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .readouts div { padding: 12px 0; }
+  .readouts div + div { padding-left: 14px; border-left: 1px solid var(--line); }
+  .label {
+    display: block;
+    font: 500 11px/1.3 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .value {
+    display: block;
+    margin-top: 4px;
+    font: 400 clamp(17px, 3vw, 24px)/1.2 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 24px;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 14px;
+  }
+  .hint {
+    margin: 0;
+    max-width: 44em;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  button.sound {
+    appearance: none;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--ink);
+    font: 500 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 10px 16px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  button.sound:hover { background: var(--line); }
+  button.sound:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .fallback {
+    margin: 24px 0;
+    padding: 16px;
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="kicker">Material Studies / No. 066 · WebGL + Web Audio</p>
+  <h1>Neon Coast Switch.</h1>
+  <p class="caption">Golden hour to midnight on the coast road. Slide the amber glass and the street comes on behind it.</p>
+  <div class="stage" id="stage">
+    <canvas id="switch" tabindex="0" role="slider" aria-label="Evening on the coast road" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="18:30"></canvas>
+  </div>
+  <p class="fallback" id="fallback" hidden>This study needs WebGL2, which this browser does not offer.</p>
+  <section class="readouts">
+    <div><span class="label">Clock</span><span class="value" id="clock">18:30</span></div>
+    <div><span class="label">Speed</span><span class="value" id="speed">0 mph</span></div>
+    <div><span class="label">Status</span><span class="value" id="status">Cruising</span></div>
+  </section>
+  <div class="foot">
+    <p class="hint">Drag the knob or use the arrow keys, Home and End; Enter or Space sends it to the far end. Tap anything in town. H honks.</p>
+    <button class="sound" id="sound" type="button" aria-pressed="true">Sound on</button>
+  </div>
+</main>
+<script>
+(() => {
+'use strict';
+// ---- core/util.js
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const invLerp = (a, b, v) => clamp((v - a) / (b - a), 0, 1);
+const smooth = (a, b, v) => {
+  const t = invLerp(a, b, v);
+  return t * t * (3 - 2 * t);
+};
+const sign = (v) => (v < 0 ? -1 : 1);
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Stable 0..1 hash of integer coordinates.
+function hash2(x, y) {
+  let h = Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+const bayer = (x, y) => (BAYER4[((y & 3) << 2) | (x & 3)] + 0.5) / 16;
+
+// Quantise a 0..1 level into `bands` steps with a 4×4 ordered dither between them.
+const dither = (v, x, y, bands) => (v <= 0 ? 0 : clamp(Math.floor(v * bands + bayer(x, y)) / bands, 0, 1));
+
+function hex(s) {
+  const n = parseInt(s.slice(1), 16);
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+}
+const mixc = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+const scalec = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
+
+// Three-stop colour ramp over 0..1 with smooth joins at `m`.
+const ramp3 = (a, b, c, t, m = 0.5) => (t < m ? mixc(a, b, smooth(0, m, t)) : mixc(b, c, smooth(m, 1, t)));
+
+// Semi-implicit spring toward `target`. Returns the acceleration it applied.
+function springStep(s, target, k, damp, dt) {
+  const a = (target - s.x) * k - s.v * damp;
+  s.v += a * dt;
+  s.x += s.v * dt;
+  return a;
+}
+
+function createBus() {
+  const handlers = new Map();
+  return {
+    on(type, fn) {
+      if (!handlers.has(type)) handlers.set(type, []);
+      handlers.get(type).push(fn);
+    },
+    emit(type, data) {
+      const list = handlers.get(type);
+      if (list) for (const fn of list) fn(data);
+    },
+  };
+}
+
+// ---- core/layout.js
+// Scene geometry in scene pixels (176×50). y grows downward.
+const W = 176;
+const H = 50;
+
+const KNOB_W = 38;
+const KNOB_H = 58;
+const KNOB_MIN = 20;
+const KNOB_MAX = W - 20;
+const knobT = (x) => clamp((x - KNOB_MIN) / (KNOB_MAX - KNOB_MIN), 0, 1);
+const knobX = (t) => KNOB_MIN + t * (KNOB_MAX - KNOB_MIN);
+
+const HORIZON = 21;
+const SAND_Y = 29;
+const WALL_Y = 32;
+const PAVE_Y = 34;
+const KERB_Y = 37;
+const ROAD_Y = 38;
+const DASH_Y = 43;
+const FAR_GROUND = 42; // bottom row of far-lane wheels
+const NEAR_GROUND = 49; // bottom row of near-lane wheels
+const BEACH_END = 47;
+
+const HOTEL = { x: 50, w: 28, roof: 8 };
+const HOTEL_WIN = { cols: [52, 57, 62, 67, 72], rows: [11, 17, 23], w: 3, h: 3 };
+const STORE = { x: 80, w: 27, roof: 20, glassY: 27, doorX: 99 };
+const SIGN24 = { post: 104, x: 99, y: 9 };
+const DINER = { x: 110, w: 25, roof: 21 };
+const CLUB = { x: 135, w: 39, roof: 13 };
+const PALMS = [
+  { x: 40, base: SAND_Y + 3, top: 12, beach: true },
+  { x: 79, base: PAVE_Y + 2, top: 9 },
+  { x: 107, base: PAVE_Y + 2, top: 22 },
+  { x: 135, base: PAVE_Y + 2, top: 9 },
+];
+const LAMPS = [48, 83, 131, 160]; // poles stand in gaps so they never cut through a sign
+const TOWER = { x: 22, w: 9 }; // lifeguard tower
+const SUN_X = 13;
+
+// Clock: 18:30 → 23:30 across the knob's travel.
+const clockMinutes = (t) => 18 * 60 + 30 + t * 300;
+function clockText(t) {
+  const m = Math.floor(clockMinutes(t));
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+// 1 scene px ≈ 0.19 m; mph = px/s · 0.19 · 2.237.
+const PX_TO_MPH = 0.425;
+
+// Tap / hover ids written into the id buffer while painting.
+const ID = {
+  NONE: 0,
+  SKY: 1,
+  SEA: 2,
+  ROAD: 3,
+  LIFEGUARD: 4,
+  PALM0: 5, // 5..8
+  WIN0: 10, // 10..24
+  STORE: 25,
+  DINER: 26,
+  NEON0: 27, // 27..33
+  CAR: 34,
+  TRAFFIC0: 35, // 35..44
+  POLICE: 45,
+  HELI: 46,
+};
+
+// Light groups: every emissive pixel and light belongs to one, so each render can switch them.
+const GROUP = { ALWAYS: 0, SKY: 1, TOWERS: 2, STORE: 3, DINER: 4, CLUB: 5, HOTEL: 6, LAMP0: 8, WIN0: 16, NEON0: 40 };
+const GROUP_COUNT = 64;
+
+// ---- gfx/font.js
+// Tiny 3×5 pixel font for neon tubes and pop-ups.
+const GLYPHS = {
+  A: ['.#.', '#.#', '###', '#.#', '#.#'],
+  C: ['.##', '#..', '#..', '#..', '.##'],
+  E: ['###', '#..', '##.', '#..', '###'],
+  H: ['#.#', '#.#', '###', '#.#', '#.#'],
+  L: ['#..', '#..', '#..', '#..', '###'],
+  M: ['#.#', '###', '###', '#.#', '#.#'],
+  N: ['##.', '#.#', '#.#', '#.#', '#.#'],
+  O: ['###', '#.#', '#.#', '#.#', '###'],
+  P: ['##.', '#.#', '##.', '#..', '#..'],
+  R: ['##.', '#.#', '##.', '#.#', '#.#'],
+  S: ['.##', '#..', '.#.', '..#', '##.'],
+  T: ['###', '.#.', '.#.', '.#.', '.#.'],
+  U: ['#.#', '#.#', '#.#', '#.#', '###'],
+  2: ['##.', '..#', '.#.', '#..', '###'],
+  4: ['#.#', '#.#', '###', '..#', '..#'],
+  '!': ['.#.', '.#.', '.#.', '...', '.#.'],
+};
+
+const textWidth = (s) => s.length * 4 - 1;
+
+// Calls fn(x, y, letterIndex) for every lit pixel of `s` drawn at (x, y).
+function eachTextPixel(s, x, y, fn) {
+  for (let i = 0; i < s.length; i++) {
+    const g = GLYPHS[s[i]];
+    if (!g) throw new Error(`No glyph for "${s[i]}"`);
+    for (let gy = 0; gy < 5; gy++) for (let gx = 0; gx < 3; gx++) if (g[gy][gx] === '#') fn(x + i * 4 + gx, y + gy, i);
+  }
+}
+
+// ---- gfx/buffer.js
+// CPU pixel buffers: albedo (lit by the light pass), emission (added on top),
+// a light group per pixel (so each render can switch sources) and a tap id.
+// Painting albedo clears emission, so whatever is in front hides the glow behind it.
+
+const OUTLINE_INK = hex('#1a0d24');
+
+function createFrame() {
+  const n = W * H;
+  return {
+    alb: new Float32Array(n * 3),
+    emi: new Float32Array(n * 3),
+    grp: new Uint8Array(n),
+    id: new Uint8Array(n),
+    halo: new Uint8Array(n), // 1 = this emission throws a halo
+    curId: 0,
+  };
+}
+
+function frameClear(F) {
+  F.alb.fill(0);
+  F.emi.fill(0);
+  F.grp.fill(0);
+  F.id.fill(0);
+  F.halo.fill(0);
+  F.curId = 0;
+}
+
+const inside = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
+
+function px(F, x, y, c) {
+  x |= 0;
+  y |= 0;
+  if (!inside(x, y)) return;
+  const i = y * W + x;
+  const j = i * 3;
+  F.alb[j] = c[0];
+  F.alb[j + 1] = c[1];
+  F.alb[j + 2] = c[2];
+  F.emi[j] = F.emi[j + 1] = F.emi[j + 2] = 0;
+  F.grp[i] = 0;
+  F.halo[i] = 0;
+  F.id[i] = F.curId;
+}
+
+// Emissive pixel. `off` is the albedo shown when its group is switched off (dark glass).
+function glow(F, x, y, c, k = 1, group = GROUP.ALWAYS, off = null, halo = true) {
+  x |= 0;
+  y |= 0;
+  if (!inside(x, y)) return;
+  const i = y * W + x;
+  const j = i * 3;
+  if (off) {
+    F.alb[j] = off[0];
+    F.alb[j + 1] = off[1];
+    F.alb[j + 2] = off[2];
+  }
+  F.emi[j] = c[0] * k;
+  F.emi[j + 1] = c[1] * k;
+  F.emi[j + 2] = c[2] * k;
+  F.grp[i] = group;
+  F.halo[i] = halo ? 1 : 0;
+  F.id[i] = F.curId;
+}
+
+// Adds light on top of whatever is there (sparks, glints) without touching albedo.
+function addGlow(F, x, y, c, k = 1) {
+  x |= 0;
+  y |= 0;
+  if (!inside(x, y)) return;
+  const i = y * W + x;
+  const j = i * 3;
+  if (F.grp[i] !== GROUP.ALWAYS && F.grp[i] !== GROUP.SKY) {
+    F.emi[j] = F.emi[j + 1] = F.emi[j + 2] = 0;
+  }
+  F.emi[j] += c[0] * k;
+  F.emi[j + 1] += c[1] * k;
+  F.emi[j + 2] += c[2] * k;
+  F.grp[i] = GROUP.ALWAYS;
+  F.halo[i] = 1;
+}
+
+function rect(F, x, y, w, h, c) {
+  for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) px(F, xx, yy, c);
+}
+
+function line(x0, y0, x1, y1, fn) {
+  x0 = Math.round(x0);
+  y0 = Math.round(y0);
+  x1 = Math.round(x1);
+  y1 = Math.round(y1);
+  const dx = Math.abs(x1 - x0);
+  const dy = -Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+  for (let guard = 0; guard < 512; guard++) {
+    fn(x0, y0);
+    if (x0 === x1 && y0 === y1) return;
+    const e2 = 2 * err;
+    if (e2 >= dy) {
+      err += dy;
+      x0 += sx;
+    }
+    if (e2 <= dx) {
+      err += dx;
+      y0 += sy;
+    }
+  }
+}
+
+// Stamps a shape as a pixel sprite: automatic dark outline, lighter top row, darker bottom row.
+// colorAt(lx, ly) returns a colour or null for each local pixel of the w×h box.
+const SPR_MAX = 64;
+const sprMask = new Array(SPR_MAX * SPR_MAX);
+function sprite(F, x0, y0, w, h, colorAt, opts = {}) {
+  const { outline = true, shade = true, flip = false } = opts;
+  x0 = Math.round(x0);
+  y0 = Math.round(y0);
+  const at = (lx, ly) => (lx < 0 || ly < 0 || lx >= w || ly >= h ? null : sprMask[ly * SPR_MAX + lx]);
+  for (let ly = 0; ly < h; ly++)
+    for (let lx = 0; lx < w; lx++) sprMask[ly * SPR_MAX + lx] = colorAt(flip ? w - 1 - lx : lx, ly);
+  if (outline) {
+    for (let ly = -1; ly <= h; ly++)
+      for (let lx = -1; lx <= w; lx++) {
+        if (at(lx, ly)) continue;
+        const n = at(lx - 1, ly) || at(lx + 1, ly) || at(lx, ly - 1) || at(lx, ly + 1);
+        if (n) px(F, x0 + lx, y0 + ly, mixc(scalec(n, 0.25), OUTLINE_INK, 0.6));
+      }
+  }
+  for (let ly = 0; ly < h; ly++)
+    for (let lx = 0; lx < w; lx++) {
+      const c = at(lx, ly);
+      if (!c) continue;
+      let o = c;
+      if (shade && !at(lx, ly - 1)) o = [Math.min(1, c[0] * 1.15 + 0.06), Math.min(1, c[1] * 1.15 + 0.06), Math.min(1, c[2] * 1.15 + 0.06)];
+      else if (shade && !at(lx, ly + 1)) o = scalec(c, 0.7);
+      px(F, x0 + lx, y0 + ly, o);
+    }
+}
+
+// ---- scene/sky.js
+// Golden-hour blue and peach → magenta dusk → night with moon and stars. Gulls by day.
+const SKY = {
+  gold: [hex('#3f74bd'), hex('#f2b38f'), hex('#ffd59c')],
+  dusk: [hex('#2a2167'), hex('#b13a8b'), hex('#ff7b6c')],
+  night: [hex('#060820'), hex('#12123d'), hex('#2b1b52')],
+};
+
+function skyStops(t) {
+  const a = smooth(0.12, 0.5, t);
+  const b = smooth(0.5, 0.85, t);
+  return [0, 1, 2].map((i) => mixc(mixc(SKY.gold[i], SKY.dusk[i], a), SKY.night[i], b));
+}
+
+const STARS = (() => {
+  const r = mulberry32(66);
+  const list = [];
+  for (let i = 0; i < 46; i++) list.push({ x: Math.floor(r() * W), y: Math.floor(r() * 19), p: r() * TAU, big: r() < 0.12 });
+  return list;
+})();
+
+const MOON = { x: 92, y: 4, r: 3 };
+
+function sunY(t) {
+  return 14 + t * 26;
+}
+
+function drawSky(F, S) {
+  const [top, mid, low] = S.sky;
+  F.curId = ID.SKY;
+  for (let y = 0; y < PAVE_Y; y++) {
+    const c = ramp3(top, mid, low, clamp(y / HORIZON, 0, 1), 0.55);
+    for (let x = 0; x < W; x++) {
+      const d = [dither(c[0], x, y, 24), dither(c[1], x, y, 24), dither(c[2], x, y, 24)];
+      glow(F, x, y, d, 1, GROUP.SKY, [0, 0, 0], false);
+    }
+  }
+
+  const starK = smooth(0.5, 0.8, S.t);
+  if (starK > 0) {
+    for (const s of STARS) {
+      const tw = 0.55 + 0.45 * Math.sin(S.time * (1.3 + (s.p % 1.7)) + s.p);
+      const k = starK * tw * (s.big ? 1 : 0.7);
+      glow(F, s.x, s.y, [0.9, 0.92, 1], k, GROUP.SKY, null, s.big);
+    }
+  }
+
+  const moonK = smooth(0.55, 0.8, S.t);
+  if (moonK > 0) {
+    const { x: mx, y: my, r } = MOON;
+    for (let y = -r; y <= r; y++)
+      for (let x = -r; x <= r; x++) {
+        if (x * x + y * y > r * r + 1) continue;
+        const crater = (x === -1 && y === 0) || (x === 1 && y === 1) || (x === 0 && y === -2);
+        glow(F, mx + x, my + y, crater ? hex('#c9c3a8') : hex('#fff6d6'), moonK, GROUP.SKY);
+      }
+  }
+
+  drawSun(F, S);
+  drawShootingStar(F, S);
+}
+
+function drawSun(F, S) {
+  const cy = sunY(S.t);
+  const r = 6;
+  if (cy - r >= HORIZON) return;
+  F.curId = ID.SKY;
+  const top = hex('#ffe680');
+  const bot = hex('#ff5c7a');
+  for (let y = Math.ceil(cy - r); y <= cy + r && y < HORIZON; y++) {
+    const dy = y - cy;
+    // Bands cut through the lower half.
+    if (dy > 0.5 && Math.floor(dy) % 2 === 1) continue;
+    const half = Math.sqrt(Math.max(0, r * r - dy * dy));
+    const c = mixc(top, bot, invLerp(-r, r, dy));
+    for (let x = Math.ceil(SUN_X - half); x <= SUN_X + half; x++) glow(F, x, y, c, 1.15, GROUP.SKY);
+  }
+}
+
+function drawShootingStar(F, S) {
+  const s = S.shootingStar;
+  if (!s) return;
+  for (let i = 0; i < 7; i++) {
+    const k = (1 - i / 7) * Math.min(1, s.life * 2);
+    glow(F, s.x - s.vx * i * 0.018, s.y - s.vy * i * 0.018, [1, 0.95, 0.85], k * 1.4, GROUP.SKY);
+  }
+}
+
+// Gulls: tiny flapping v-shapes over the beach.
+function drawGulls(F, S) {
+  F.curId = ID.SKY;
+  for (const g of S.gulls) {
+    const up = Math.sin(g.flap) > 0;
+    const x = Math.round(g.x);
+    const y = Math.round(g.y);
+    const wing = hex('#f4f1ea');
+    const tip = hex('#5b5560');
+    px(F, x, y, wing);
+    px(F, x - 1, y + (up ? -1 : 0), wing);
+    px(F, x + 1, y + (up ? -1 : 0), wing);
+    px(F, x - 2, y + (up ? -1 : 1), tip);
+    px(F, x + 2, y + (up ? -1 : 1), tip);
+  }
+}
+
+// ---- scene/beach.js
+// The beach on the left: sea with glitter, surf on the sand, lifeguard tower,
+// striped umbrella, surfboard and a low sea wall.
+const C_BEACH = {
+  seaHi: hex('#5fb3c9'),
+  seaLo: hex('#1f5f8f'),
+  sand: hex('#f0cf94'),
+  wet: hex('#c9a46f'),
+  foam: hex('#fbf7ee'),
+  wall: hex('#e9dccb'),
+  joint: hex('#b9a48e'),
+  teal: hex('#2fb7aa'),
+  pink: hex('#f58fb2'),
+  red: hex('#e8414b'),
+  white: hex('#f6f2ea'),
+  wood: hex('#9a6a44'),
+  glass: hex('#28324a'),
+  board: hex('#ffd34d'),
+  stripe: hex('#2b8fd6'),
+};
+
+function drawSea(F, S) {
+  F.curId = ID.SEA;
+  const sunUp = 1 - smooth(0.2, 0.4, S.t);
+  const night = smooth(0.55, 0.85, S.t);
+  for (let y = HORIZON; y < SAND_Y + 1; y++) {
+    const depth = invLerp(HORIZON, SAND_Y, y);
+    const c = mixc(mixc(S.sky[2], C_BEACH.seaHi, 0.45), C_BEACH.seaLo, depth * 0.8);
+    for (let x = 0; x < W; x++) {
+      const wave = hash2(x + Math.floor(S.time * 2 + y * 3), y) < 0.08;
+      px(F, x, y, wave ? mixc(c, C_BEACH.foam, 0.35) : c);
+    }
+  }
+  // Sun path on the water and scattered glitter.
+  for (let y = HORIZON; y < SAND_Y - 1; y++) {
+    const spread = 1.5 + (y - HORIZON) * 0.9;
+    for (let x = Math.floor(SUN_X - spread); x <= SUN_X + spread; x++) {
+      const h = hash2(x * 7 + Math.floor(S.time * 6), y * 13);
+      if (h < 0.35 * sunUp) glow(F, x, y, hex('#ffd36b'), 0.9 * sunUp, GROUP.ALWAYS, null, true);
+    }
+  }
+  for (let i = 0; i < 18; i++) {
+    const x = Math.floor(hash2(i, Math.floor(S.time * 1.6 + i * 0.37)) * BEACH_END);
+    const y = HORIZON + 1 + Math.floor(hash2(i * 3, Math.floor(S.time * 1.6 + i * 0.37)) * (SAND_Y - HORIZON - 2));
+    const k = sunUp > 0.1 ? 0.8 * sunUp : 0.45 * night;
+    glow(F, x, y, night > 0.5 ? hex('#cfe0ff') : hex('#fff1c2'), k, GROUP.ALWAYS, null, false);
+  }
+}
+
+function drawSand(F, S) {
+  F.curId = ID.SEA;
+  // Surf: foam line swells in and out over wet sand.
+  for (let x = 0; x <= BEACH_END; x++) {
+    const swell = Math.sin(S.time * 0.75 + x * 0.09) * 0.8 + Math.sin(S.time * 1.9 + x * 0.31) * 0.35;
+    const fy = SAND_Y + Math.round(swell);
+    for (let y = SAND_Y - 1; y < WALL_Y; y++) {
+      if (y < fy) continue;
+      F.curId = ID.NONE;
+      const grain = hash2(x, y) < 0.15;
+      if (y === fy) {
+        F.curId = ID.SEA;
+        px(F, x, y, C_BEACH.foam);
+      } else if (y === fy + 1) px(F, x, y, C_BEACH.wet);
+      else px(F, x, y, grain ? mixc(C_BEACH.sand, C_BEACH.wet, 0.4) : C_BEACH.sand);
+    }
+  }
+}
+
+function drawUmbrella(F) {
+  F.curId = ID.NONE;
+  rect(F, 8, 23, 1, 9, hex('#eae4da'));
+  sprite(F, 2, 20, 13, 4, (x, y) => {
+    const half = [3, 5, 6, 6][y];
+    if (Math.abs(x - 6) > half) return null;
+    if (y === 3 && (x + 1) % 2 === 0) return null; // scalloped edge
+    return Math.floor((x + 1) / 2) % 2 === 0 ? C_BEACH.red : C_BEACH.white;
+  });
+}
+
+function drawSurfboard(F) {
+  F.curId = ID.NONE;
+  sprite(F, 34, 21, 3, 11, (x, y) => {
+    if ((y === 0 || y === 10) && x !== 1) return null;
+    return x === 1 && y > 1 && y < 10 ? C_BEACH.stripe : C_BEACH.board;
+  });
+}
+
+function drawLifeguard(F, S) {
+  F.curId = ID.LIFEGUARD;
+  const x0 = TOWER.x;
+  // legs and brace
+  rect(F, x0 + 1, 24, 1, 8, C_BEACH.wood);
+  rect(F, x0 + 7, 24, 1, 8, C_BEACH.wood);
+  line(x0 + 1, 31, x0 + 7, 25, (x, y) => px(F, x, y, C_BEACH.wood));
+  // ramp down to the sand
+  line(x0 + 9, 22, x0 + 13, 31, (x, y) => {
+    px(F, x, y, C_BEACH.wood);
+    px(F, x, y + 1, scalec(C_BEACH.wood, 0.7));
+  });
+  // cabin with a dark window, pink roof
+  sprite(F, x0, 18, 9, 6, (x, y) => (y >= 1 && y <= 3 && x >= 2 && x <= 6 ? C_BEACH.glass : y === 5 ? scalec(C_BEACH.teal, 0.8) : C_BEACH.teal));
+  sprite(F, x0 - 1, 15, 11, 3, (x, y) => (Math.abs(x - 5) <= [3, 4, 5][y] ? C_BEACH.pink : null));
+  // flag pole and the red flag, flapping harder after a whistle
+  rect(F, x0 + 8, 8, 1, 7, hex('#d8d2c8'));
+  const flap = S.flag;
+  for (let fx = 0; fx < 4; fx++)
+    for (let fy = 0; fy < 3; fy++) {
+      const wave = Math.round(Math.sin(S.time * (4 + flap * 10) - fx * 1.3) * (0.4 + fx * 0.25 * (0.4 + flap)));
+      px(F, x0 + 9 + fx, 8 + fy + wave, fy === 2 ? scalec(C_BEACH.red, 0.75) : C_BEACH.red);
+    }
+}
+
+function drawSeaWall(F) {
+  F.curId = ID.NONE;
+  for (let x = 0; x <= BEACH_END + 2; x++)
+    for (let y = WALL_Y; y < PAVE_Y; y++) {
+      const joint = (y === WALL_Y + 1 && x % 7 === 0) || (y === WALL_Y && x % 7 === 3);
+      px(F, x, y, y === WALL_Y ? mixc(C_BEACH.wall, C_BEACH.white, 0.4) : joint ? C_BEACH.joint : C_BEACH.wall);
+    }
+}
+
+function drawDolphin(F, S) {
+  const d = S.dolphin;
+  if (!d) return;
+  const p = d.t / d.dur; // 0..1 along the leap
+  if (p <= 0 || p >= 1) return;
+  const x = d.x0 + p * 18;
+  const y = SAND_Y - 3 - Math.sin(p * Math.PI) * 9;
+  const ang = Math.cos(p * Math.PI) * 0.9; // nose up, then down
+  F.curId = ID.SEA;
+  const body = hex('#6f8fae');
+  const belly = hex('#d9e4ee');
+  const pts = [];
+  for (let i = -3; i <= 3; i++) pts.push([Math.round(x + i), Math.round(y - i * ang * 0.8)]);
+  for (const [i, [bx, by]] of pts.entries()) {
+    if (by >= SAND_Y - 1) continue;
+    px(F, bx, by, body);
+    if (i > 0 && i < 6 && by + 1 < SAND_Y - 1) px(F, bx, by + 1, belly);
+  }
+  const [hx, hy] = pts[pts.length - 1];
+  if (hy < SAND_Y - 1) px(F, hx + 1, hy - Math.sign(ang), body);
+  const [tx, ty] = pts[0];
+  if (ty < SAND_Y - 1) {
+    px(F, tx - 1, ty - 1, body);
+    px(F, tx - 1, ty + 1, body);
+  }
+  const [fx, fy] = pts[3];
+  if (fy - 1 < SAND_Y - 1) px(F, fx - 1, fy - 1, body);
+}
+
+function drawBeach(F, S) {
+  drawSea(F, S);
+  drawDolphin(F, S);
+  drawSand(F, S);
+  drawUmbrella(F);
+  drawLifeguard(F, S);
+  drawSurfboard(F);
+}
+
+// ---- scene/city.js
+// Far blue towers and the four boulevard buildings.
+const C_CITY = {
+  tower: hex('#2f5296'),
+  towerDark: hex('#243f78'),
+  towerWin: hex('#4a6fb3'),
+  hotel: hex('#f49ab3'),
+  hotelDeep: hex('#d9768f'),
+  teal: hex('#2bb3a7'),
+  glass: hex('#2a2f4d'),
+  glassHi: hex('#5a6488'),
+  storeWall: hex('#e8e2d6'),
+  fascia: hex('#1e4c58'),
+  shelf: hex('#8a8f9e'),
+  mint: hex('#9fe5ca'),
+  mintDeep: hex('#6fc3a7'),
+  chrome: hex('#d6dde6'),
+  chromeDark: hex('#8f9aa8'),
+  lav: hex('#b9a2e6'),
+  lavHi: hex('#d8c9f5'),
+  lavDeep: hex('#8f78c4'),
+  board: hex('#2a2238'),
+  post: hex('#5d5468'),
+  seat: hex('#d8455a'),
+};
+
+const WIN_LIGHTS = [hex('#ffc66b'), hex('#ff8fc8'), hex('#8fd6ff')];
+const FLUOR = hex('#e6fff4');
+
+const FAR_TOWERS = [
+  { x: 43, w: 8, top: 13, ant: false },
+  { x: 57, w: 11, top: 2, ant: true },
+  { x: 83, w: 9, top: 6, ant: true },
+  { x: 93, w: 12, top: 10, ant: false },
+  { x: 111, w: 9, top: 4, ant: true },
+  { x: 123, w: 11, top: 13, ant: false },
+  { x: 160, w: 10, top: 3, ant: true },
+];
+
+function drawFarTowers(F, S) {
+  F.curId = ID.NONE;
+  for (const [ti, tw] of FAR_TOWERS.entries()) {
+    for (let y = tw.top; y < PAVE_Y; y++)
+      for (let x = tw.x; x < tw.x + tw.w; x++) {
+        const edge = x === tw.x + tw.w - 1;
+        const isWin = (x - tw.x) % 2 === 1 && (y - tw.top) % 2 === 1 && !edge && y > tw.top;
+        if (!isWin) {
+          px(F, x, y, edge ? C_CITY.towerDark : C_CITY.tower);
+          continue;
+        }
+        const h = hash2(x * 5 + ti, y * 3);
+        if (h < 0.42) glow(F, x, y, h < 0.21 ? hex('#ffd98a') : hex('#9fe6ff'), 0.7, GROUP.TOWERS, C_CITY.towerWin, false);
+        else px(F, x, y, C_CITY.towerWin);
+      }
+    if (tw.ant) {
+      const ax = tw.x + Math.floor(tw.w / 2);
+      rect(F, ax, tw.top - 3, 1, 3, C_CITY.towerDark);
+      const blink = Math.sin(S.time * 2.6 + ti * 1.7) > 0.55;
+      glow(F, ax, tw.top - 4, hex('#ff3b3b'), blink ? 1.4 : 0.15, GROUP.ALWAYS, C_CITY.towerDark);
+    }
+  }
+}
+
+function hotelWindows() {
+  const list = [];
+  let i = 0;
+  for (const y of HOTEL_WIN.rows)
+    for (const x of HOTEL_WIN.cols) {
+      const h = hash2(x, y * 7);
+      list.push({ i, x, y, dark: h < 0.2, color: WIN_LIGHTS[Math.floor(hash2(y, x) * 3)], gate: x + 1 + hash2(x * 3, y) * 4 });
+      i++;
+    }
+  return list;
+}
+
+function drawHotel(F, S) {
+  const { x: hx, w, roof } = HOTEL;
+  F.curId = ID.NONE;
+  rect(F, hx, roof + 2, w, PAVE_Y - roof - 2, C_CITY.hotel);
+  for (let y = roof + 2; y < PAVE_Y; y++) {
+    px(F, hx, y, C_CITY.hotelDeep);
+    px(F, hx + w - 1, y, C_CITY.hotelDeep);
+  }
+  rect(F, hx - 1, roof, w + 2, 2, C_CITY.teal);
+  rect(F, hx - 1, roof + 1, w + 2, 1, scalec(C_CITY.teal, 0.75));
+  for (const ly of [15, 21, 27]) {
+    rect(F, hx - 1, ly, w + 2, 1, C_CITY.teal);
+    for (let x = hx; x < hx + w; x++) px(F, x, ly + 1, C_CITY.hotelDeep);
+  }
+  // roof sign frame
+  rect(F, hx + 6, roof - 1, 1, 1, C_CITY.post);
+  rect(F, hx + w - 7, roof - 1, 1, 1, C_CITY.post);
+  rect(F, hx + 4, 1, w - 8, 7, C_CITY.board);
+
+  for (const win of S.windows) {
+    F.curId = ID.WIN0 + win.i;
+    const lit = !win.dark || win.forced > 0;
+    for (let y = 0; y < HOTEL_WIN.h; y++)
+      for (let x = 0; x < HOTEL_WIN.w; x++) {
+        const wx = win.x + x;
+        const wy = win.y + y;
+        const glare = x + y === 0;
+        if (!lit) {
+          px(F, wx, wy, glare ? C_CITY.glassHi : C_CITY.glass);
+          continue;
+        }
+        // A silhouette crosses a knocked-on window.
+        const sil = win.silT > 0 && Math.round(lerp(-1, HOTEL_WIN.w, 1 - win.silT / 1.6)) === x && y > 0;
+        const head = win.silT > 0 && Math.round(lerp(-1, HOTEL_WIN.w, 1 - win.silT / 1.6)) === x && y === 0;
+        const c = sil || head ? hex('#1a0f22') : win.color;
+        const grp = win.forced > 0 ? GROUP.ALWAYS : GROUP.WIN0 + win.i;
+        glow(F, wx, wy, c, sil || head ? 0.05 : 0.95, grp, glare ? C_CITY.glassHi : C_CITY.glass);
+      }
+    // window sill
+    F.curId = ID.NONE;
+    rect(F, win.x - 1, win.y + HOTEL_WIN.h, HOTEL_WIN.w + 2, 1, C_CITY.hotelDeep);
+  }
+
+  // lobby, awning and door
+  F.curId = ID.NONE;
+  for (let x = hx + 9; x < hx + 19; x++) px(F, x, 28, (x & 1) === 0 ? C_CITY.teal : hex('#f6f2ea'));
+  for (let y = 29; y < PAVE_Y; y++)
+    for (let x = hx + 10; x < hx + 18; x++) {
+      const frame = x === hx + 13 || x === hx + 14;
+      if (frame) px(F, x, y, C_CITY.chromeDark);
+      else glow(F, x, y, hex('#ffcf8a'), 0.7, GROUP.HOTEL, C_CITY.glass, false);
+    }
+}
+
+function drawStore(F, S) {
+  const { x: sx, w, roof, glassY, doorX } = STORE;
+  const st = S.store;
+  F.curId = ID.STORE;
+  rect(F, sx, roof, w, 1, hex('#4d4a58'));
+  rect(F, sx, roof + 1, w, glassY - roof - 1, C_CITY.fascia);
+  rect(F, sx, roof + 1, w, 1, scalec(C_CITY.fascia, 1.35));
+  rect(F, sx, glassY, 1, PAVE_Y - glassY, C_CITY.storeWall);
+  rect(F, sx + w - 1, glassY, 1, PAVE_Y - glassY, C_CITY.storeWall);
+  rect(F, sx, PAVE_Y - 1, w, 1, C_CITY.storeWall);
+
+  const shelfColors = [hex('#ff6b6b'), hex('#ffd166'), hex('#5ad1a8'), hex('#6fa8ff'), hex('#ff9ad5')];
+  const open = st.door; // 0..1 slide
+  for (let y = glassY; y < PAVE_Y - 1; y++)
+    for (let x = sx + 1; x < sx + w - 1; x++) {
+      const inDoor = x >= doorX && x < doorX + 5;
+      const shelfRow = (y === glassY + 2 || y === glassY + 4) && !inDoor && x !== sx + 9;
+      const product = shelfRow && hash2(x, y) < 0.75;
+      let c = FLUOR;
+      let k = 0.55;
+      let off = C_CITY.glass;
+      if (product) {
+        c = shelfColors[Math.floor(hash2(y, x * 3) * shelfColors.length)];
+        k = 0.65;
+        off = scalec(c, 0.3);
+      } else if (shelfRow) {
+        c = C_CITY.shelf;
+        k = 0.4;
+      }
+      if (inDoor) {
+        // sliding door panels part from the middle
+        const local = x - doorX;
+        const gap = Math.round(open * 2.5);
+        const panel = local < 2 - gap + 0.5 || local > 2 + gap - 0.5;
+        if (panel && (local === 0 || local === 4)) {
+          px(F, x, y, C_CITY.chromeDark);
+          continue;
+        }
+        if (panel) {
+          c = scalec(FLUOR, 0.85);
+          k = 0.5;
+        }
+      }
+      glow(F, x, y, c, k, GROUP.STORE, off, false);
+    }
+
+  drawClerk(F, S);
+
+  if (st.broken) {
+    F.curId = ID.STORE;
+    const cracks = [
+      [83, 28, 88, 31],
+      [86, 27, 84, 32],
+      [88, 29, 92, 27],
+      [90, 30, 95, 32],
+      [93, 28, 96, 30],
+    ];
+    for (const [x0, y0, x1, y1] of cracks) line(x0, y0, x1, y1, (x, y) => px(F, x, y, hex('#f4fbff')));
+    for (const [x, y] of [[87, 30], [92, 29], [91, 31]]) px(F, x, y, hex('#0e1020'));
+  }
+
+  // "24H" sign on a post
+  F.curId = ID.NONE;
+  rect(F, SIGN24.post, SIGN24.y + 7, 1, PAVE_Y - SIGN24.y - 7, C_CITY.post);
+  sprite(F, SIGN24.x - 1, SIGN24.y, 15, 7, () => C_CITY.board, { shade: false });
+}
+
+function drawClerk(F, S) {
+  const st = S.store;
+  F.curId = ID.STORE;
+  const cx = STORE.x + 9;
+  const y0 = STORE.glassY + 1;
+  const skin = hex('#c98d63');
+  const shirt = hex('#e24b5b');
+  glow(F, cx, y0, skin, 0.6, GROUP.STORE, scalec(skin, 0.3), false);
+  glow(F, cx, y0 + 1, shirt, 0.6, GROUP.STORE, scalec(shirt, 0.3), false);
+  glow(F, cx, y0 + 2, shirt, 0.6, GROUP.STORE, scalec(shirt, 0.3), false);
+  glow(F, cx, y0 + 3, hex('#3a3550'), 0.5, GROUP.STORE, C_CITY.glass, false);
+  if (st.wave > 0) {
+    const up = Math.sin(st.wave * 18) > 0;
+    glow(F, cx + 1, y0 + (up ? -1 : 0), skin, 0.7, GROUP.STORE, scalec(skin, 0.3), false);
+  }
+}
+
+function drawDiner(F, S) {
+  const { x: dx, w, roof } = DINER;
+  F.curId = ID.DINER;
+  sprite(
+    F,
+    dx,
+    roof,
+    w,
+    PAVE_Y - roof,
+    (x, y) => {
+      if (y === 0 && (x < 2 || x > w - 3)) return null;
+      if (y === 1 && (x === 0 || x === w - 1)) return null;
+      if (y === 3) return C_CITY.chrome;
+      if (y >= PAVE_Y - roof - 2) return (x & 1) === 0 ? C_CITY.chrome : C_CITY.chromeDark;
+      return C_CITY.mint;
+    },
+    { outline: false },
+  );
+  // ribbon window with booths, and a door
+  for (let y = roof + 4; y < roof + 9; y++)
+    for (let x = dx + 2; x < dx + w - 6; x++) {
+      const booth = y >= roof + 7 && (x - dx) % 4 !== 1;
+      const lamp = y === roof + 4 && (x - dx) % 4 === 3;
+      const c = booth ? C_CITY.seat : lamp ? hex('#fff1c9') : hex('#ffcf8f');
+      glow(F, x, y, c, booth ? 0.6 : lamp ? 1.1 : 0.7, GROUP.DINER, booth ? scalec(C_CITY.seat, 0.35) : C_CITY.glass, lamp);
+    }
+  for (let y = roof + 4; y < PAVE_Y - 2; y++)
+    for (let x = dx + w - 5; x < dx + w - 2; x++) glow(F, x, y, hex('#ffd9a0'), 0.65, GROUP.DINER, C_CITY.glass, false);
+  // neon palm mount
+  F.curId = ID.NONE;
+  rect(F, dx + 11, roof - 1, 3, 1, C_CITY.post);
+}
+
+function drawClub(F, S) {
+  const { x: cx, w, roof } = CLUB;
+  F.curId = ID.NONE;
+  const mid = cx + Math.floor(w / 2);
+  sprite(
+    F,
+    cx,
+    roof,
+    w,
+    PAVE_Y - roof,
+    (x, y) => {
+      const ax = x + cx;
+      const yy = y + roof;
+      if (yy < roof + 3 && Math.abs(ax - mid) > 6) return null;
+      if (yy < roof + 6 && Math.abs(ax - mid) > 15) return null;
+      const fin = yy < 23 && (ax === mid - 4 || ax === mid || ax === mid + 4);
+      if (yy === 23 || yy === roof + 3 || yy === roof + 6) return C_CITY.lavDeep;
+      if (fin) return C_CITY.lavHi;
+      return C_CITY.lav;
+    },
+    { shade: true },
+  );
+  // roof sign board and posts (kept inside the pill's rounded end)
+  rect(F, mid - 5, roof - 1, 1, 1, C_CITY.post);
+  rect(F, mid + 5, roof - 1, 1, 1, C_CITY.post);
+  rect(F, cx + 7, 5, 25, 7, C_CITY.board);
+
+  // porthole windows
+  const ports = [cx + 3, cx + 8, cx + 13];
+  for (const [i, wx] of ports.entries())
+    for (let y = 20; y < 22; y++)
+      for (let x = wx; x < wx + 2; x++) glow(F, x, y, i === 1 ? hex('#c77dff') : hex('#ff8fd0'), 0.8, GROUP.CLUB, C_CITY.glass, false);
+  // marquee with bulbs and the door
+  for (let x = mid - 9; x <= mid + 9; x++) {
+    px(F, x, 25, C_CITY.board);
+    const bulb = (x + Math.floor(S.time * 4)) % 3 === 0;
+    glow(F, x, 26, hex('#ffe9a8'), bulb ? 1.1 : 0.35, GROUP.CLUB, hex('#5d5468'));
+  }
+  for (let y = 27; y < PAVE_Y; y++)
+    for (let x = mid - 3; x <= mid + 3; x++) glow(F, x, y, x === mid ? hex('#5a2a6e') : hex('#d35dff'), 0.55, GROUP.CLUB, C_CITY.glass, false);
+}
+
+function drawCity(F, S) {
+  drawHotel(F, S);
+  drawStore(F, S);
+  drawDiner(F, S);
+  drawClub(F, S);
+}
+
+// ---- scene/street.js
+// Pavement, kerb, the two-lane road, palms with swaying fronds, and four street lamps.
+const C_STREET = {
+  pave: hex('#d8b7a2'),
+  seam: hex('#b9947f'),
+  kerb: hex('#efe6d8'),
+  kerbShadow: hex('#8d7f86'),
+  road: hex('#3b3849'),
+  roadHi: hex('#46435a'),
+  dash: hex('#f4c84a'),
+  trunk: hex('#8a5a3b'),
+  trunkHi: hex('#a9744e'),
+  frond: hex('#3d9b55'),
+  frondHi: hex('#62c070'),
+  nut: hex('#6b4128'),
+  pole: hex('#4c4a5a'),
+  lampOff: hex('#6b6577'),
+};
+const SODIUM = hex('#ffa646');
+const PAVE_SEAM = 6; // a seam every 6 px (the carhop's wheels click on them)
+
+function drawGround(F) {
+  F.curId = ID.NONE;
+  for (let y = PAVE_Y; y < KERB_Y; y++)
+    for (let x = 0; x < W; x++) px(F, x, y, x % PAVE_SEAM === 0 && y > PAVE_Y ? C_STREET.seam : y === PAVE_Y ? mixc(C_STREET.pave, C_STREET.kerb, 0.3) : C_STREET.pave);
+  for (let x = 0; x < W; x++) px(F, x, KERB_Y, C_STREET.kerb);
+  F.curId = ID.ROAD;
+  for (let y = ROAD_Y; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      let c = y === ROAD_Y ? C_STREET.kerbShadow : hash2(x, y * 5) < 0.07 ? C_STREET.roadHi : C_STREET.road;
+      if (y === DASH_Y && x % 8 < 4) c = C_STREET.dash;
+      px(F, x, y, c);
+    }
+}
+
+// Fronds bend with the breeze; a shake makes them thrash.
+function palmPixels(p, S, i) {
+  const pts = new Map();
+  const put = (x, y, c) => pts.set(`${Math.round(x)},${Math.round(y)}`, [Math.round(x), Math.round(y), c]);
+  const lean = p.beach ? -2 : i % 2 === 0 ? 2 : -2;
+  const shake = S.palms[i].shake;
+  const n = p.base - p.top;
+  for (let k = 0; k <= n; k++) {
+    const y = p.base - k;
+    const x = p.x + lean * Math.pow(k / n, 2);
+    const c = k % 2 === 0 ? C_STREET.trunk : C_STREET.trunkHi;
+    put(x, y, c);
+    put(x + 1, y, scalec(c, 0.8));
+  }
+  const cx = p.x + lean + 0.5;
+  const cy = p.top;
+  const sway = Math.sin(S.time * 1.1 + i * 1.7) * 0.07 + shake * Math.sin(S.time * 31 + i) * 0.35;
+  const fronds = [-2.95, -2.45, -1.95, -1.2, -0.7, -0.2];
+  for (const [fi, a0] of fronds.entries()) {
+    const len = fi === 2 || fi === 3 ? 6 : 8;
+    const a = a0 + sway * (1 + fi * 0.1);
+    for (let s = 1; s <= len; s++) {
+      const droop = (s * s) / len * 0.55;
+      const x = cx + Math.cos(a) * s;
+      const y = cy + Math.sin(a) * s + droop;
+      put(x, y, s < 3 ? C_STREET.frond : s % 3 === 0 ? C_STREET.frondHi : C_STREET.frond);
+      if (s > 2 && s < len - 1) put(x, y + 1, scalec(C_STREET.frond, 0.75));
+    }
+  }
+  const nuts = S.palms[i].nuts;
+  if (nuts > 0) put(cx - 1, cy + 1, C_STREET.nut);
+  if (nuts > 1) put(cx + 1, cy + 1, C_STREET.nut);
+  if (nuts > 2) put(cx, cy + 2, C_STREET.nut);
+  return [...pts.values()];
+}
+
+function drawPalm(F, S, i) {
+  const pts = palmPixels(PALMS[i], S, i);
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const [x, y] of pts) {
+    x0 = Math.min(x0, x);
+    y0 = Math.min(y0, y);
+    x1 = Math.max(x1, x);
+    y1 = Math.max(y1, y);
+  }
+  const grid = new Map(pts.map(([x, y, c]) => [`${x},${y}`, c]));
+  F.curId = ID.PALM0 + i;
+  sprite(F, x0, y0, x1 - x0 + 1, y1 - y0 + 1, (lx, ly) => grid.get(`${lx + x0},${ly + y0}`) || null, { shade: false });
+}
+
+function drawLamp(F, S, i) {
+  const x = LAMPS[i];
+  F.curId = ID.NONE;
+  rect(F, x, 22, 1, PAVE_Y + 2 - 22, C_STREET.pole);
+  rect(F, x - 1, PAVE_Y + 2, 3, 1, scalec(C_STREET.pole, 0.7));
+  rect(F, x - 1, 20, 3, 1, C_STREET.pole);
+  for (let lx = -1; lx <= 1; lx++) glow(F, x + lx, 21, SODIUM, 1.3, GROUP.LAMP0 + i, C_STREET.lampOff);
+}
+
+function drawStreetFurniture(F, S) {
+  for (let i = 1; i < PALMS.length; i++) drawPalm(F, S, i);
+  for (let i = 0; i < LAMPS.length; i++) drawLamp(F, S, i);
+}
+
+// ---- scene/neon.js
+// Neon tubes: drawn from the 3×5 font and simple line shapes. Off, they are dark glass;
+// on, they glow with a halo and spill their colour. Each sign flickers as it catches.
+
+function polyPixels(paths) {
+  const out = [];
+  for (const path of paths) for (let i = 1; i < path.length; i++) line(path[i - 1][0], path[i - 1][1], path[i][0], path[i][1], (x, y) => out.push([x, y]));
+  return out;
+}
+
+function textPixels(s, x, y) {
+  const out = [];
+  eachTextPixel(s, x, y, (px_, py, li) => out.push([px_, py, li]));
+  return out;
+}
+
+const NEON_PALM_FRONDS = polyPixels([
+  [[123, 12], [120, 10], [117, 11]],
+  [[123, 12], [120, 13], [118, 15]],
+  [[123, 12], [126, 10], [129, 11]],
+  [[123, 12], [126, 13], [128, 15]],
+  [[123, 12], [123, 9]],
+]);
+const NEON_PALM_TRUNK = polyPixels([[[122, 19], [122, 16], [123, 13]]]);
+
+const FLAMINGO = polyPixels([
+  [[165, 17], [166, 17], [167, 18]], // head and beak
+  [[165, 17], [164, 18], [164, 20], [165, 21], [166, 22]], // neck
+  [[166, 22], [169, 22], [171, 23], [170, 25], [167, 25], [165, 24], [166, 22]], // body
+  [[168, 25], [168, 32]], // standing leg
+  [[169, 25], [170, 28], [168, 28]], // tucked leg
+]);
+
+const NEON_SIGNS = [
+  { name: 'CORAL', color: hex('#ff5fa8'), pixels: textPixels('CORAL', 55, 2), groups: [GROUP.NEON0] },
+  { name: '24H', color: hex('#ff6a3d'), pixels: textPixels('24H', SIGN24.x + 1, SIGN24.y + 1), groups: [GROUP.NEON0 + 1] },
+  { name: 'MART', color: hex('#48f0ff'), pixels: textPixels('MART', STORE.x + 6, STORE.roof + 2), groups: [GROUP.NEON0 + 2] },
+  { name: 'OPEN', color: hex('#ff3d5a'), pixels: textPixels('OPEN', DINER.x + 3, DINER.roof + 4), groups: [GROUP.NEON0 + 3] },
+  {
+    name: 'PALM',
+    color: hex('#3dff9a'),
+    pixels: [...NEON_PALM_FRONDS, ...NEON_PALM_TRUNK.map(([x, y]) => [x, y, 'trunk'])],
+    groups: [GROUP.NEON0 + 4],
+  },
+  {
+    name: 'SUNSET',
+    color: hex('#ffb13b'),
+    pixels: textPixels('SUNSET', CLUB.x + 8, 6),
+    groups: [0, 1, 2, 3, 4, 5].map((i) => GROUP.NEON0 + 5 + i),
+  },
+  { name: 'FLAMINGO', color: hex('#ff6ec7'), pixels: FLAMINGO, groups: [GROUP.NEON0 + 11] },
+];
+
+for (const s of NEON_SIGNS) {
+  let sx = 0;
+  let sy = 0;
+  for (const [x, y] of s.pixels) {
+    sx += x;
+    sy += y;
+  }
+  s.cx = sx / s.pixels.length;
+  s.cy = sy / s.pixels.length;
+}
+
+const NEON_TRUNK = hex('#ff9a3d');
+const darkGlass = (c) => mixc(scalec(c, 0.28), hex('#3a3346'), 0.45);
+
+function drawNeon(F, S) {
+  for (const [si, s] of NEON_SIGNS.entries()) {
+    F.curId = ID.NEON0 + si;
+    for (const p of s.pixels) {
+      const [x, y, tag] = p;
+      const c = tag === 'trunk' ? NEON_TRUNK : s.color;
+      const grp = s.groups.length > 1 ? s.groups[tag] : s.groups[0];
+      glow(F, x, y, c, 1.25, grp, darkGlass(c));
+    }
+  }
+}
+
+function createNeonState() {
+  return NEON_SIGNS.map(() => ({ on: false, catchT: 9, short: 0 }));
+}
+
+// Flicker while catching: a few stutters, then steady.
+function neonCatchLevel(catchT, seed) {
+  if (catchT >= 0.9) return 1;
+  const h = hash2(Math.floor(catchT * 22), seed);
+  if (catchT < 0.15) return h < 0.3 ? 0.6 : 0;
+  return h < 0.25 + catchT * 0.8 ? 1 : 0.08;
+}
+
+function neonShortLevel(st, time, seed) {
+  if (st.short <= 0) return 1;
+  return hash2(Math.floor(time * 34), seed * 7) < 0.3 ? 0.9 : 0.04;
+}
+
+// SUNSET letters chase on the beat late at night.
+function sunsetChase(S, letter) {
+  const k = smooth(0.84, 0.9, S.t);
+  if (k <= 0) return 1;
+  const step = Math.floor(S.beat * 2) % 8;
+  const lit = step === letter || step === letter + 1 || step >= 6;
+  return lerp(1, lit ? 1.15 : 0.18, k);
+}
+
+// ---- actors/vehicles.js
+// Vehicle templates (drawn facing right) and tiny figures.
+// b body · B lower body · k black · W white · g glass · c chrome · w tyre · h hub
+// l headlight · t taillight · r/u red/blue light bar · y taxi sign
+const CAR_TPL = {
+  sedan: [
+    '.......bbbbbbb........',
+    '......bgggbgggb.......',
+    '.....bggggbggggb......',
+    'tbbbbbbbbbbbbbbbbbbbbb',
+    'bbbbbbbbbbbbbbbbbbbbbl',
+    'BBBBBBBBBBBBBBBBBBBBBc',
+    'cBBwwwBBBBBBBBBBwwwBBc',
+    '...whw..........whw...',
+  ],
+  coupe: [
+    '........bbbbb.......',
+    '.......bggggbb......',
+    '......bgggggggbb....',
+    'tbbbbbbbbbbbbbbbbbbl',
+    'BBBBBBBBBBBBBBBBBBBB',
+    'cBBwwwBBBBBBBBwwwBBc',
+    '...whw........whw...',
+  ],
+  van: [
+    'bbbbbbbbbbbbbbbbb.....',
+    'bggggbggggbggggbbgb...',
+    'bggggbggggbggggbbggb..',
+    'bbbbbbbbbbbbbbbbbbbbbb',
+    'tbbbbbbbbbbbbbbbbbbbbl',
+    'BBBBBBBBBBBBBBBBBBBBBB',
+    'cBBwwwBBBBBBBBBBwwwBBc',
+    '...whw..........whw...',
+  ],
+  taxi: [
+    '.........yyy..........',
+    '.......bbbbbbb........',
+    '......bgggbgggb.......',
+    '.....bggggbggggb......',
+    'tbbbbbbbbbbbbbbbbbbbbb',
+    'bbbbbbbbbbbbbbbbbbbbbl',
+    'BBBBBBBBBBBBBBBBBBBBBc',
+    'cBBwwwBBBBBBBBBBwwwBBc',
+    '...whw..........whw...',
+  ],
+  police: [
+    '.........rruu.........',
+    '.......kkkkkkk........',
+    '......kgggkgggk.......',
+    '.....kggggkggggk......',
+    'tkkkkkWWWWWWWWWWkkkkkk',
+    'kkkkkkWWWWWWWWWWkkkkkl',
+    'kkkkkkWWWWWWWWWWkkkkkc',
+    'ckkwwwkkkkkkkkkkwwwkkc',
+    '...whw..........whw...',
+  ],
+  muscle: [
+    '.........bbbbbb.........',
+    '........bggggggb........',
+    'kk.....bggggggggbb......',
+    'tkbbbbbbbbbbbbbbbbkkkkkl',
+    'bbbbbbbbbbbbbbbbbbkkkkkb',
+    'cBwwwwBBBBBBBBBBBBwwwBBc',
+    '..whhw............whw...',
+  ],
+};
+
+const VEH_COLORS = {
+  k: hex('#17141f'),
+  W: hex('#f2f0ea'),
+  g: hex('#2c3a5c'),
+  c: hex('#cfd8e2'),
+  w: hex('#141218'),
+  h1: hex('#b9c2cc'),
+  h2: hex('#4a4f5a'),
+  l: hex('#fff3c4'),
+  t: hex('#7a1f2a'),
+  r: hex('#8a1f2a'),
+  u: hex('#1f2f8a'),
+  y: hex('#ffe066'),
+};
+
+const HEAD_LIGHT = hex('#fff2c2');
+const TAIL_LIGHT = hex('#ff2a3a');
+const BAR_RED = hex('#ff2440');
+const BAR_BLUE = hex('#2f6bff');
+
+// Draws a vehicle centred on cx with its wheels on groundY. Returns the box.
+function drawVehicle(F, kind, body, cx, groundY, facing, o = {}) {
+  const tpl = CAR_TPL[kind];
+  const w = tpl[0].length;
+  const h = tpl.length;
+  const x0 = Math.round(cx - w / 2);
+  const y0 = Math.round(groundY - h + 1 - (o.lift || 0));
+  const lower = scalec(body, 0.78);
+  const flip = facing < 0;
+  const wheel = o.wheel || 0;
+  sprite(
+    F,
+    x0,
+    y0,
+    w,
+    h,
+    (lx, ly) => {
+      const ch = tpl[ly][lx];
+      if (ch === '.') return null;
+      if (ch === 'b') return body;
+      if (ch === 'B') return lower;
+      if (ch === 'h') return (Math.floor(wheel) + lx) % 2 === 0 ? VEH_COLORS.h1 : VEH_COLORS.h2;
+      if (ch === 'k' && kind === 'muscle') return VEH_COLORS.k;
+      return VEH_COLORS[ch] || body;
+    },
+    { flip },
+  );
+  for (let ly = 0; ly < h; ly++)
+    for (let lx = 0; lx < w; lx++) {
+      const ch = tpl[ly][lx];
+      const X = x0 + (flip ? w - 1 - lx : lx);
+      const Y = y0 + ly;
+      if (ch === 'l' && (o.lights || o.flash > 0)) glow(F, X, Y, HEAD_LIGHT, o.flash > 0 ? 2.2 : 1.4);
+      else if (ch === 't' && (o.lights || o.brake)) glow(F, X, Y, TAIL_LIGHT, o.brake ? 1.6 : 0.8);
+      else if ((ch === 'r' || ch === 'u') && o.bar) {
+        const redOn = Math.sin(o.bar * TAU) > 0;
+        const on = ch === 'r' ? redOn : !redOn;
+        if (on) glow(F, X, Y, ch === 'r' ? BAR_RED : BAR_BLUE, 2);
+      }
+    }
+  return { x0, y0, w, h, front: flip ? x0 - 1 : x0 + w, rear: flip ? x0 + w : x0 - 1 };
+}
+
+// Tiny people, about 6 px tall. pose: stand | run | crouch | aim
+const FIG_STYLE = {
+  robber: { head: hex('#16131c'), skin: hex('#c48a62'), top: hex('#22b3a6'), legs: hex('#2c2a3a') },
+  officer: { head: hex('#1d2f6b'), skin: hex('#b07a55'), top: hex('#2f57c9'), legs: hex('#1d2f6b') },
+  carhop: { head: hex('#f2c14e'), skin: hex('#e2a57f'), top: hex('#ff7bb5'), legs: hex('#e2a57f') },
+};
+
+function drawFigure(F, kind, x, groundY, pose, facing, phase = 0, o = {}) {
+  const st = FIG_STYLE[kind];
+  const pts = [];
+  const add = (lx, ly, c) => pts.push([facing < 0 ? 2 - lx : lx, ly, c]);
+  if (pose === 'crouch') {
+    add(1, 0, st.head);
+    add(0, 1, st.top);
+    add(1, 1, st.top);
+    add(2, 1, st.top);
+    add(0, 2, st.top);
+    add(1, 2, st.top);
+    add(0, 3, st.legs);
+    add(2, 3, st.legs);
+  } else {
+    add(1, 0, st.head);
+    add(1, 1, kind === 'robber' ? st.head : st.skin);
+    add(0, 2, st.top);
+    add(1, 2, st.top);
+    add(2, 2, st.top);
+    add(0, 3, st.top);
+    add(1, 3, st.top);
+    add(2, 3, st.top);
+    if (kind === 'robber') add(2, 1, st.skin); // eye slit
+    if (pose === 'run' && Math.floor(phase) % 2 === 0) {
+      add(1, 4, st.legs);
+      add(1, 5, st.legs);
+    } else if (pose === 'run') {
+      add(1, 4, st.legs);
+      add(0, 5, st.legs);
+      add(2, 5, st.legs);
+    } else {
+      add(0, 4, st.legs);
+      add(2, 4, st.legs);
+      add(0, 5, st.legs);
+      add(2, 5, st.legs);
+    }
+    if (pose === 'aim') {
+      add(3, 2, st.skin);
+      add(4, 2, VEH_COLORS.k);
+    }
+    if (o.wave) add(Math.sin(phase * 3) > 0 ? 3 : 2, o.wave > 0 ? 1 : 2, st.skin);
+  }
+  if (o.sack) {
+    const sx = facing < 0 ? 3 : -1;
+    pts.push([sx, 2, hex('#c9b27a')], [sx, 3, hex('#b39a63')], [sx - Math.sign(facing), 3, hex('#b39a63')]);
+  }
+  if (o.skates) pts.push([0, 6, VEH_COLORS.k], [2, 6, VEH_COLORS.k]);
+  if (o.shake) pts.push([facing < 0 ? -1 : 3, 1, hex('#ffd1e8')], [facing < 0 ? -1 : 3, 0, hex('#f05a9a')]);
+  const h = pose === 'crouch' ? 4 : o.skates ? 7 : 6;
+  const minX = Math.min(...pts.map((p) => p[0]));
+  const maxX = Math.max(...pts.map((p) => p[0]));
+  const grid = new Map(pts.map(([lx, ly, c]) => [`${Math.round(lx)},${ly}`, c]));
+  sprite(F, Math.round(x) - 1 + minX, groundY - h + 1, maxX - minX + 1, h, (lx, ly) => grid.get(`${lx + minX},${ly}`) || null, { shade: false });
+}
+
+// ---- actors/convertible.js
+// The coral convertible: follows the knob on a spring in the near lane.
+// A dog in sunglasses drives; a white cat in sunglasses rides in the back.
+const CONV_TPL = [
+  '...............cc.......',
+  '..............cg........',
+  '...bbbbbbbbbbbcgbbbbbb..',
+  'tbbbbbbbbbbbbbbbbbbbbbbl',
+  'bsssssssssssssssssssssbb',
+  'cbbwwwbbbbbbbbbbbbwwwbbc',
+  '...whw............whw...',
+];
+const CONV_COLORS = {
+  b: hex('#ff6b5e'),
+  s: hex('#fbf6ee'),
+  dog: hex('#c98a4b'),
+  dogDark: hex('#7a4a2a'),
+  cat: hex('#f4f2ec'),
+  catPink: hex('#ffb3c1'),
+  shades: hex('#0f0c14'),
+  tongue: hex('#ff7d9c'),
+  shake: hex('#ffd1e8'),
+  straw: hex('#ff4f8b'),
+};
+
+function createCar() {
+  return {
+    x: knobX(0.08),
+    v: 0,
+    a: 0,
+    facing: 1,
+    wheel: 0,
+    hop: { x: 0, v: 0 },
+    bounceDir: 0,
+    duck: 0,
+    bonk: 0,
+    ears: 0,
+    brake: false,
+    puffT: 0,
+    reverseSmoke: 0,
+    drink: 0,
+    paw: 0,
+    lean: 0,
+    catBob: 0,
+    yipCd: 0,
+    meowCd: 0,
+  };
+}
+
+const CAR_MAX_V = 230;
+const CAR_MAX_A = 900;
+
+function stepCar(S, dt) {
+  const c = S.car;
+  const k = 40;
+  let a = (S.knob.x - c.x) * k - c.v * 2 * Math.sqrt(k) * 0.82;
+  a = clamp(a, -CAR_MAX_A, CAR_MAX_A);
+  const prevV = c.v;
+  c.v = clamp(c.v + a * dt, -CAR_MAX_V, CAR_MAX_V);
+  c.x += c.v * dt;
+  c.a = (c.v - prevV) / dt;
+  c.wheel += (c.v * dt) / 2.2;
+  const speed = Math.abs(c.v);
+
+  // Hard reversal: heavy braking at speed → tyre smoke and a squeal.
+  const braking = c.a * c.v < 0;
+  c.brake = braking && Math.abs(c.a) > 140 && speed > 4;
+  if (braking && Math.abs(c.a) > 600 && speed > 70) {
+    if (c.reverseSmoke <= 0) {
+      S.bus.emit('sfx', { name: 'squeal', x: c.x, k: Math.min(1, speed / 200) });
+      if (c.meowCd <= 0) {
+        S.bus.emit('sfx', { name: 'meow', x: c.x, delay: 0.35 });
+        c.meowCd = 5;
+      }
+    }
+    c.reverseSmoke = 0.35;
+  }
+  // The dog yips with joy at speed.
+  c.yipCd = Math.max(0, c.yipCd - dt);
+  c.meowCd = Math.max(0, c.meowCd - dt);
+  if (speed * PX_TO_MPH > 55 && c.yipCd <= 0) {
+    c.yipCd = 4 + Math.random() * 3;
+    S.bus.emit('sfx', { name: 'yip', x: c.x });
+    S.bus.emit('sfx', { name: 'yip', x: c.x, delay: 0.14 });
+  }
+  if (c.reverseSmoke > 0) {
+    c.reverseSmoke -= dt;
+    for (let i = 0; i < 2; i++) spawnFx(S, 'smoke', c.x + (Math.random() - 0.5) * 18, NEAR_GROUND - 1, (Math.random() - 0.5) * 20, -8 - Math.random() * 10, 0.9);
+  }
+  if (speed > 15) c.facing = sign(c.v);
+
+  // Exhaust puffs while accelerating.
+  if (!braking && Math.abs(c.a) > 160) {
+    c.puffT -= dt;
+    if (c.puffT <= 0) {
+      c.puffT = 0.07;
+      spawnFx(S, 'puff', c.x - c.facing * 13, NEAR_GROUND - 2, -c.facing * 18 + c.v * 0.2, -4, 0.6);
+    }
+  }
+
+  // Hydraulics bounce on a spring; springs squeak at each bottom-out.
+  const prevHopV = c.hop.v;
+  springStep(c.hop, 0, 130, 4.5, dt);
+  if (prevHopV < 0 && c.hop.v >= 0 && c.hop.x < -0.2 && Math.abs(prevHopV) > 4) S.bus.emit('sfx', { name: 'squeak', x: c.x, k: Math.min(1, Math.abs(prevHopV) / 40) });
+  if (c.hop.x < 0) c.hop.x = Math.max(c.hop.x, -1.2);
+
+  c.ears += dt * (6 + speed * 0.12);
+  c.bonk = Math.max(0, c.bonk - dt);
+  c.drink = Math.max(0, c.drink - dt);
+  c.lean = Math.max(0, c.lean - dt);
+  c.paw = Math.max(0, c.paw - dt * 6);
+  c.catBob = Math.max(0, c.catBob - dt * 5);
+  const wantDuck = S.holdup.phase === 'shootout' || S.holdup.phase === 'police' ? 1 : 0;
+  c.duck = clamp(c.duck + (wantDuck ? dt * 6 : -dt * 2), 0, 1);
+}
+
+function drawCar(F, S) {
+  const c = S.car;
+  const flip = c.facing < 0;
+  const w = CONV_TPL[0].length;
+  const x0 = Math.round(c.x - w / 2);
+  const lift = Math.round(Math.max(0, c.hop.x));
+  const bodyY = NEAR_GROUND - CONV_TPL.length + 1 - lift;
+  const speed = Math.abs(c.v);
+  const X = (lx) => x0 + (flip ? w - 1 - lx : lx);
+  F.curId = ID.CAR;
+
+  // Speed lines behind the car.
+  if (speed > 120) {
+    const k = smooth(120, 220, speed);
+    for (let i = 0; i < 3; i++) {
+      const len = 4 + Math.floor(hash2(i, Math.floor(S.time * 20)) * 6 * k);
+      const y = bodyY + 1 + i * 2;
+      for (let j = 0; j < len; j++) glow(F, X(-3 - j - i * 2), y, [1, 1, 1], 0.5 * k * (1 - j / len), GROUP.ALWAYS, null, false);
+    }
+  }
+
+  // Occupants, drawn first so the doors hide their lower halves.
+  const duck = Math.round(c.duck * 4);
+  const dogY = bodyY - 2 + duck + (c.lean > 0 ? 1 : 0);
+  const catY = bodyY - 2 + duck + (c.catBob > 0.5 ? 1 : 0);
+  const occ = new Map();
+  const put = (lx, ly, col) => occ.set(`${lx},${ly}`, col);
+  // dog
+  for (let lx = 10; lx <= 12; lx++) for (let ly = 0; ly <= 2; ly++) put(lx, ly, CONV_COLORS.dog);
+  put(13, 1, CONV_COLORS.dog);
+  put(13, 2, CONV_COLORS.dogDark);
+  for (let lx = 11; lx <= 13; lx++) put(lx, 1, CONV_COLORS.shades);
+  const flapping = speed > 60;
+  const earUp = flapping && Math.sin(c.ears) > 0;
+  if (flapping) {
+    put(9, 0, CONV_COLORS.dogDark);
+    put(8, earUp ? -1 : 0, CONV_COLORS.dogDark);
+  } else {
+    put(9, 1, CONV_COLORS.dogDark);
+    put(9, 2, CONV_COLORS.dogDark);
+  }
+  if (speed > 90) {
+    put(13, 3, CONV_COLORS.tongue);
+    if (speed > 150) put(14, 3, CONV_COLORS.tongue);
+  }
+  // cat, two seats back
+  const cat = new Map();
+  for (let lx = 3; lx <= 5; lx++) for (let ly = 0; ly <= 2; ly++) cat.set(`${lx},${ly}`, CONV_COLORS.cat);
+  cat.set('3,-1', CONV_COLORS.cat);
+  cat.set('5,-1', CONV_COLORS.cat);
+  cat.set('4,1', CONV_COLORS.shades);
+  cat.set('5,1', CONV_COLORS.shades);
+  cat.set('6,1', CONV_COLORS.shades);
+  cat.set('5,2', CONV_COLORS.catPink);
+
+  const occSprite = (map, yTop) => {
+    const keys = [...map.keys()].map((s) => s.split(',').map(Number));
+    const minX = Math.min(...keys.map((k) => k[0]));
+    const maxX = Math.max(...keys.map((k) => k[0]));
+    const minY = Math.min(...keys.map((k) => k[1]));
+    const maxY = Math.max(...keys.map((k) => k[1]));
+    const sx = flip ? x0 + w - 1 - maxX : x0 + minX;
+    sprite(F, sx, yTop + minY, maxX - minX + 1, maxY - minY + 1, (lx, ly) => map.get(`${lx + minX},${ly + minY}`) || null, { flip, shade: false });
+  };
+  occSprite(occ, dogY);
+  occSprite(cat, catY);
+
+  // Lens glint on the cat's sunglasses.
+  if (Math.sin(S.time * 2.3) > 0.93 && duck < 3) glow(F, X(6), catY + 1, [1, 1, 1], 1.6);
+
+  // Body.
+  sprite(
+    F,
+    x0,
+    bodyY,
+    w,
+    CONV_TPL.length,
+    (lx, ly) => {
+      const ch = CONV_TPL[ly][lx];
+      if (ch === '.') return null;
+      if (ch === 'b') return ly >= 5 ? scalec(CONV_COLORS.b, 0.8) : CONV_COLORS.b;
+      if (ch === 's') return CONV_COLORS.s;
+      if (ch === 'h') return (Math.floor(c.wheel) + lx) % 2 === 0 ? VEH_COLORS.h1 : VEH_COLORS.h2;
+      return VEH_COLORS[ch];
+    },
+    { flip },
+  );
+  // Wheels stay on the road while the body rides the hydraulics.
+  if (lift > 0)
+    for (let ly = 0; ly < lift; ly++)
+      for (const lx of [3, 4, 5, 18, 19, 20]) px(F, X(lx), NEAR_GROUND - ly, lx === 4 || lx === 19 ? VEH_COLORS.h2 : VEH_COLORS.w);
+
+  const lights = S.night > 0.35;
+  if (lights) glow(F, X(23), bodyY + 3, HEAD_LIGHT, 1.5);
+  if (lights || c.brake) glow(F, X(0), bodyY + 3, TAIL_LIGHT, c.brake ? 1.8 : 0.8);
+
+  // The dog drums on the door; a milkshake when the carhop delivers.
+  if (c.paw > 0) px(F, X(13), bodyY + 2 - (c.paw > 0.5 ? 1 : 0), CONV_COLORS.dog);
+  if (c.drink > 0) {
+    px(F, X(14), bodyY + 1, CONV_COLORS.shake);
+    px(F, X(14), bodyY, CONV_COLORS.shake);
+    px(F, X(14), bodyY - 1, CONV_COLORS.straw);
+    px(F, X(13), bodyY - 1, CONV_COLORS.straw);
+  }
+
+  // Stars circle the dog's head after a coconut.
+  if (c.bonk > 0) {
+    for (let i = 0; i < 3; i++) {
+      const a = S.time * 7 + (i * TAU) / 3;
+      glow(F, X(11) + Math.cos(a) * 3, dogY - 1 + Math.sin(a) * 1.2, hex('#ffe45c'), 1.5);
+    }
+  }
+  return { x0, bodyY, front: X(23), rear: X(0) };
+}
+
+// ---- actors/fx.js
+// Particles (puffs, smoke, sparks, glass, splashes), floating pop-ups and falling coconuts.
+const FX_STYLE = {
+  puff: { c: hex('#c9c4cf'), grav: -6, drag: 2.5, glow: false },
+  smoke: { c: hex('#e4e0e8'), grav: -10, drag: 1.8, glow: false },
+  spark: { c: hex('#ffd36b'), grav: 60, drag: 0.5, glow: true },
+  crackle: { c: hex('#bff6ff'), grav: 40, drag: 0.5, glow: true },
+  glass: { c: hex('#d8f4ff'), grav: 90, drag: 0.3, glow: true },
+  splash: { c: hex('#f2fbff'), grav: 70, drag: 0.4, glow: false },
+};
+const FX_MAX = 260;
+
+function spawnFx(S, kind, x, y, vx, vy, life, color) {
+  if (S.fx.length >= FX_MAX) S.fx.shift();
+  S.fx.push({ kind, x, y, vx, vy, life, max: life, c: color || null, seed: Math.random() * 1000 });
+}
+
+function burst(S, kind, x, y, n, speed, life, color) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * TAU;
+    const s = speed * (0.4 + Math.random() * 0.6);
+    spawnFx(S, kind, x, y, Math.cos(a) * s, Math.sin(a) * s - speed * 0.4, life * (0.6 + Math.random() * 0.4), color);
+  }
+}
+
+function stepFx(S, dt) {
+  for (const p of S.fx) {
+    const st = FX_STYLE[p.kind];
+    p.vy += st.grav * dt;
+    p.vx *= Math.exp(-st.drag * dt);
+    p.vy *= Math.exp(-st.drag * dt * 0.5);
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.life -= dt;
+    if ((p.kind === 'glass' || p.kind === 'spark') && p.y > NEAR_GROUND) {
+      p.y = NEAR_GROUND;
+      p.vy *= -0.3;
+      p.vx *= 0.6;
+    }
+  }
+  S.fx = S.fx.filter((p) => p.life > 0 && p.x > -8 && p.x < W + 8 && p.y > -8);
+
+  for (const p of S.pops) {
+    p.life -= dt;
+    p.y -= dt * (p.kind === 'heart' ? 5 : 3);
+    if (p.kind === 'heart') p.x += Math.sin(p.life * 6 + p.seed) * dt * 4;
+  }
+  S.pops = S.pops.filter((p) => p.life > 0);
+}
+
+function drawFx(F, S) {
+  F.curId = ID.NONE;
+  for (const p of S.fx) {
+    const st = FX_STYLE[p.kind];
+    const k = p.life / p.max;
+    const c = p.c || st.c;
+    if (st.glow) {
+      addGlow(F, p.x, p.y, c, 1.6 * k);
+      continue;
+    }
+    // Fade by thinning the pixel out with an ordered dither.
+    if (bayer(Math.round(p.x), Math.round(p.y)) > k * 1.2) continue;
+    px(F, p.x, p.y, c);
+    if (p.kind === 'smoke' && k > 0.5) px(F, p.x + 1, p.y, c);
+  }
+}
+
+function addPop(S, kind, x, y, life = 1.4) {
+  S.pops.push({ kind, x, y, life, max: life, seed: Math.random() * 10 });
+}
+
+const HEART = ['#.#', '###', '.#.'];
+function drawPops(F, S) {
+  F.curId = ID.NONE;
+  for (const p of S.pops) {
+    if (p.life < 0.3 && Math.floor(p.life * 20) % 2 === 0) continue;
+    if (p.kind === '!') {
+      sprite(F, Math.round(p.x) - 1, Math.round(p.y), 3, 5, (lx, ly) => (GLYPHS['!'][ly][lx] === '#' ? hex('#fffbe8') : null), { shade: false });
+    } else if (p.kind === 'heart') {
+      for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) if (HEART[y][x] === '#') glow(F, Math.round(p.x) + x - 1, Math.round(p.y) + y, hex('#ff5fa2'), 1.2);
+    }
+  }
+}
+
+// Coconuts fall from a palm crown, knock on the pavement, or bonk the dog.
+function stepCoconuts(S, dt) {
+  for (const n of S.nuts) {
+    n.vy += 140 * dt;
+    n.x += n.vx * dt;
+    n.y += n.vy * dt;
+    const c = S.car;
+    const overCar = Math.abs(n.x - c.x) < 11;
+    const headY = NEAR_GROUND - 9;
+    if (!n.hitDog && overCar && n.y >= headY && n.y < headY + 3 && c.duck < 0.5) {
+      n.hitDog = true;
+      n.vy = -45;
+      n.vx = (Math.random() < 0.5 ? -1 : 1) * 30;
+      c.bonk = 2.6;
+      S.bus.emit('sfx', { name: 'bonk', x: n.x });
+      continue;
+    }
+    if (n.y >= n.floor) {
+      n.y = n.floor;
+      if (Math.abs(n.vy) > 25) {
+        S.bus.emit('sfx', { name: 'coconut', x: n.x, k: Math.min(1, n.vy / 90) });
+        n.vy *= -0.38;
+        n.vx *= 0.6;
+      } else {
+        n.vy = 0;
+        n.vx *= 0.9;
+        n.rest += dt;
+      }
+    }
+  }
+  S.nuts = S.nuts.filter((n) => n.rest < 6);
+}
+
+function drawCoconuts(F, S) {
+  F.curId = ID.NONE;
+  const c = hex('#6b4128');
+  for (const n of S.nuts) sprite(F, Math.round(n.x), Math.round(n.y) - 1, 2, 2, () => c);
+}
+
+// ---- actors/traffic.js
+// Traffic drives left in the far lane: sedans, coupes, vans and a yellow taxi.
+const TRAFFIC_KINDS = [
+  { kind: 'sedan', w: 0.36 },
+  { kind: 'coupe', w: 0.26 },
+  { kind: 'van', w: 0.2 },
+  { kind: 'taxi', w: 0.18 },
+];
+const TRAFFIC_BODIES = ['#4fa3d9', '#e8e2d2', '#7c5cc4', '#3fbf9f', '#d9576b', '#f2a65a', '#5c6b8a'].map(hex);
+const TAXI_BODY = hex('#ffcf3a');
+
+function pickKind(r) {
+  let acc = 0;
+  for (const k of TRAFFIC_KINDS) {
+    acc += k.w;
+    if (r < acc) return k.kind;
+  }
+  return 'sedan';
+}
+
+// Density thins late at night so the far lane can clear for the hold-up.
+const trafficDensity = (t) => 1 - smooth(0.8, 0.9, t);
+
+function stepTraffic(S, dt) {
+  const T = S.trafficState;
+  const blocked = S.holdup.phase !== 'idle';
+  T.spawnIn -= dt * trafficDensity(S.t);
+  if (T.spawnIn <= 0 && !blocked) {
+    T.spawnIn = 2.2 + S.rng() * 4;
+    const last = S.traffic[S.traffic.length - 1];
+    const used = new Set(S.traffic.map((c) => c.slot));
+    let slot = 0;
+    while (used.has(slot)) slot++;
+    if ((!last || last.x < W - 6) && slot < 10) {
+      const kind = pickKind(S.rng());
+      S.traffic.push({
+        slot,
+        kind,
+        body: kind === 'taxi' ? TAXI_BODY : TRAFFIC_BODIES[Math.floor(S.rng() * TRAFFIC_BODIES.length)],
+        x: W + 14,
+        v: -(34 + S.rng() * 22),
+        wheel: 0,
+        flash: 0,
+        honkPitch: 0.75 + S.rng() * 0.6,
+        side: Math.sign(W + 14 - S.car.x),
+      });
+    }
+  }
+  for (let i = 0; i < S.traffic.length; i++) {
+    const c = S.traffic[i];
+    const ahead = S.traffic[i - 1];
+    let v = c.v;
+    // Keep a gap to the car in front.
+    if (ahead && c.x - ahead.x < 26) v = Math.max(v, ahead.v * 0.95);
+    c.x += v * dt;
+    c.wheel += (v * dt) / 2.2;
+    c.flash = Math.max(0, c.flash - dt);
+    const side = Math.sign(c.x - S.car.x);
+    if (side !== c.side && side !== 0) {
+      c.side = side;
+      S.bus.emit('sfx', { name: 'pass', x: c.x, v: v - S.car.v, kind: c.kind });
+    }
+  }
+  S.traffic = S.traffic.filter((c) => c.x > -16);
+}
+
+function drawTraffic(F, S) {
+  const lights = S.night > 0.3;
+  for (const c of S.traffic) {
+    F.curId = ID.TRAFFIC0 + c.slot;
+    c.box = drawVehicle(F, c.kind, c.body, c.x, FAR_GROUND, -1, { lights, wheel: c.wheel, flash: c.flash > 0 && Math.floor(c.flash * 10) % 2 === 0 ? 1 : 0 });
+  }
+}
+
+const farLaneClear = (S) => S.traffic.length === 0;
+
+// ---- actors/police.js
+// After dark, driving fast brings a police car onto your tail. Slow down and it gives up,
+// swings out, overtakes and leaves.
+const POLICE_AFTER_DARK = 0.55;
+const SPEEDING_MPH = 48;
+
+function createPolice() {
+  return { state: 'off', x: -30, v: 0, lane: 0, bar: 0, slowT: 0, heat: 0, dir: 1, lostT: 0, wheel: 0 };
+}
+
+function stepPolice(S, dt) {
+  const P = S.police;
+  const c = S.car;
+  const mph = Math.abs(c.v) * PX_TO_MPH;
+  P.lostT = Math.max(0, P.lostT - dt);
+  P.bar += dt * 2.2;
+
+  if (P.state === 'off') {
+    const eligible = S.t >= POLICE_AFTER_DARK && S.holdup.phase === 'idle';
+    if (eligible && mph > SPEEDING_MPH) P.heat += (dt * (mph - SPEEDING_MPH)) / 6;
+    else P.heat = Math.max(0, P.heat - dt * 0.15);
+    if (P.heat >= 1) {
+      P.state = 'chase';
+      P.heat = 0;
+      P.slowT = 0;
+      P.lane = 0;
+      P.x = c.facing > 0 ? -18 : W + 18;
+      P.v = c.v * 0.9;
+      S.bus.emit('sfx', { name: 'policeIn', x: P.x });
+    }
+    return;
+  }
+
+  if (P.state === 'chase') {
+    const target = c.x - c.facing * 27;
+    let a = (target - P.x) * 9 - P.v * 5.2;
+    a = clamp(a, -800, 800);
+    P.v = clamp(P.v + a * dt, -270, 270);
+    P.x += P.v * dt;
+    P.slowT = mph < 25 ? P.slowT + dt : 0;
+    if (P.slowT > 2.2 || S.t < POLICE_AFTER_DARK - 0.08 || S.holdup.phase !== 'idle') {
+      P.state = 'giveup';
+      P.dir = c.facing;
+      P.lostT = 3.5;
+      S.bus.emit('sfx', { name: 'bark', x: c.x });
+      S.bus.emit('sfx', { name: 'bark', x: c.x, delay: 0.25 });
+    }
+  } else if (P.state === 'giveup') {
+    P.lane = Math.min(1, P.lane + dt * 1.8);
+    P.v = lerp(P.v, P.dir * 175, 1 - Math.exp(-dt * 1.6));
+    P.x += P.v * dt;
+    if (P.x < -30 || P.x > W + 30) {
+      P.state = 'off';
+      P.x = -30;
+    }
+  }
+  P.wheel += (P.v * dt) / 2.2;
+}
+
+const policeGround = (P) => Math.round(lerp(NEAR_GROUND - 1, FAR_GROUND, smooth(0, 1, P.lane)));
+
+function drawPolice(F, S) {
+  const P = S.police;
+  if (P.state === 'off') return;
+  F.curId = ID.POLICE;
+  const facing = Math.abs(P.v) > 5 ? sign(P.v) : S.car.facing;
+  P.box = drawVehicle(F, 'police', VEH_COLORS.k, P.x, policeGround(P), facing, { lights: true, bar: P.bar, wheel: P.wheel });
+  P.facing = facing;
+}
+
+// ---- actors/heli.js
+// A helicopter arrives at night: blinking beacon, flickering rotor, sweeping searchlight.
+// It follows the chase and the hold-up.
+const HELI_TPL = [
+  '.................',
+  '.......k.........',
+  '....bbbbbb.......',
+  '...gggbbbbbbbbbbb',
+  '...ggbbbbbb....bk',
+  '....bbbbbb.....k.',
+  '....c....c.......',
+  '...cccccccc......',
+];
+const HELI_BODY = hex('#2b3049');
+const SEARCH = hex('#e8f1ff');
+
+function createHeli() {
+  return { state: 'away', x: W + 30, y: 7, v: 0, beam: { x: 90, v: 0 }, tapT: 0, facing: -1 };
+}
+
+function heliFocus(S) {
+  const h = S.holdup;
+  if (h.phase === 'getaway') return h.mx;
+  if (h.phase !== 'idle' && h.phase !== 'pending') return (h.mx + h.px) / 2;
+  if (S.police.state === 'chase' || S.heli.tapT > 0) return S.car.x;
+  return null;
+}
+
+function stepHeli(S, dt) {
+  const Hh = S.heli;
+  const want = S.t > 0.72;
+  Hh.tapT = Math.max(0, Hh.tapT - dt);
+  if (Hh.state === 'away') {
+    if (!want) return;
+    Hh.state = 'in';
+    Hh.x = W + 24;
+    Hh.v = -30;
+  }
+  const focus = heliFocus(S);
+  let target = focus !== null ? focus + 4 : 50 + (Math.sin(S.time * 0.09) * 0.5 + 0.5) * 90;
+  if (!want) target = W + 40;
+  const a = clamp((target - Hh.x) * 1.1 - Hh.v * 1.9, -40, 40);
+  Hh.v = clamp(Hh.v + a * dt, -55, 55);
+  Hh.x += Hh.v * dt;
+  if (Math.abs(Hh.v) > 3) Hh.facing = sign(Hh.v);
+  Hh.y = 7 + Math.sin(S.time * 0.9) * 0.8;
+  if (!want && Hh.x > W + 30) {
+    Hh.state = 'away';
+    return;
+  }
+  // Searchlight: sweeps, or locks onto the action.
+  const beamTarget = focus !== null ? focus : Hh.x + Math.sin(S.time * 0.55) * 30;
+  springStep(Hh.beam, beamTarget, focus !== null ? 14 : 3, focus !== null ? 7 : 3.5, dt);
+}
+
+function drawHeli(F, S) {
+  const Hh = S.heli;
+  if (Hh.state === 'away') return;
+  F.curId = ID.HELI;
+  const w = HELI_TPL[0].length;
+  const x0 = Math.round(Hh.x - w / 2);
+  const y0 = Math.round(Hh.y - 3);
+  const flip = Hh.facing > 0;
+  sprite(F, x0, y0, w, HELI_TPL.length, (lx, ly) => {
+    const ch = HELI_TPL[ly][lx];
+    if (ch === '.') return null;
+    if (ch === 'g') return VEH_COLORS.g;
+    if (ch === 'c') return hex('#8d93a6');
+    if (ch === 'k') return VEH_COLORS.k;
+    return HELI_BODY;
+  }, { flip });
+  const X = (lx) => x0 + (flip ? w - 1 - lx : lx);
+  // Rotor: a flickering blade.
+  const frame = Math.floor(S.time * 24) % 3;
+  const half = [8, 5, 7][frame];
+  for (let i = -half; i <= half; i++) if (frame !== 1 || Math.abs(i) % 3 !== 2) px(F, X(7) + i, y0, hex('#565b70'));
+  // Beacon blinks.
+  if (Math.sin(S.time * 5) > 0.6) glow(F, X(16), y0 + 4, hex('#ff3040'), 2);
+  glow(F, X(6), y0 + 6, SEARCH, 1.6);
+  Hh.lamp = { x: X(6), y: y0 + 6 };
+}
+
+// ---- actors/holdup.js
+// The hold-up, left of the knob: window shatters → police arrive → five seconds of
+// shooting from cover → getaway and chase. Stylised and bloodless; nobody is hit.
+const HOLDUP_MX = 82; // where the muscle car parks, in front of the store
+const MUSCLE_BODY = hex('#ffcc1f');
+const HOLDUP_LATE = 0.9;
+const AFTER_DARK = 0.6;
+const SHOOTOUT_SECONDS = 5;
+
+function createHoldup() {
+  return { phase: 'idle', t: 0, cooldown: 0, taps: [], mx: W + 16, mv: 0, px: W + 16, pv: 0, robbers: [], officers: [], shotIn: 0, muzzles: [], alarm: 0, bar: 0, mWheel: 0, pWheel: 0 };
+}
+
+function holdupStatus(h) {
+  if (h.phase === 'alarm' || h.phase === 'police') return 'Alarm';
+  if (h.phase === 'shootout') return 'Shots fired';
+  if (h.phase === 'getaway') return 'Getaway';
+  return null;
+}
+
+function storeTapped(S) {
+  const h = S.holdup;
+  if (S.t < AFTER_DARK || h.phase !== 'idle' || h.cooldown > 0) return;
+  h.taps = h.taps.filter((t) => S.time - t < 3);
+  h.taps.push(S.time);
+  if (h.taps.length >= 3) {
+    h.taps = [];
+    h.phase = 'pending';
+  }
+}
+
+function startHoldup(S) {
+  const h = S.holdup;
+  h.phase = 'arrive';
+  h.t = 0;
+  h.mx = W + 16;
+  h.mv = -110;
+  h.px = W + 30;
+  h.pv = 0;
+  h.robbers = [];
+  h.officers = [];
+  h.muzzles = [];
+  h.skid = false;
+  h.peeled = false;
+  S.bus.emit('sfx', { name: 'roar', x: h.mx, k: 0.5 });
+}
+
+function moveFigure(f, dt, speed) {
+  const dx = f.tx - f.x;
+  const dy = f.ty - f.gy;
+  const d = Math.hypot(dx, dy);
+  if (d < 0.5) {
+    f.x = f.tx;
+    f.gy = f.ty;
+    return true;
+  }
+  const s = Math.min(d, speed * dt);
+  f.x += (dx / d) * s;
+  f.gy += (dy / d) * s;
+  f.phase += dt * 9;
+  f.facing = dx < 0 ? -1 : 1;
+  return false;
+}
+
+function fireShot(S) {
+  const h = S.holdup;
+  const robberSide = S.rng() < 0.5;
+  const shooters = robberSide ? h.robbers : h.officers;
+  const f = shooters[Math.floor(S.rng() * shooters.length)];
+  if (!f) return;
+  f.pop = 0.35;
+  const dir = robberSide ? 1 : -1;
+  const gx = f.x + dir * 3;
+  const gy = f.gy - 4;
+  h.muzzles.push({ x: gx, y: gy, life: 0.09, dir });
+  S.flash = Math.max(S.flash, 0.55);
+  // Sparks and glass off the other side's car body.
+  const tx = robberSide ? h.px + (S.rng() - 0.5) * 16 : h.mx + (S.rng() - 0.5) * 18;
+  const ty = FAR_GROUND - 3 - S.rng() * 3;
+  burst(S, 'spark', tx, ty, 5, 40, 0.35);
+  if (S.rng() < 0.45) burst(S, 'glass', tx, ty - 1, 4, 30, 0.7);
+  S.bus.emit('sfx', { name: 'shot', x: gx, side: robberSide ? 'robber' : 'police' });
+  if (S.rng() < 0.35) {
+    const rx = tx + (S.rng() - 0.5) * 20;
+    burst(S, 'spark', rx, PAVE_Y + S.rng() * 3, 3, 50, 0.3);
+    S.bus.emit('sfx', { name: 'ricochet', x: rx, delay: 0.05 + S.rng() * 0.08 });
+  }
+}
+
+function stepHoldup(S, dt) {
+  const h = S.holdup;
+  h.cooldown = Math.max(0, h.cooldown - dt);
+  h.bar += dt * 2.2;
+  h.alarm = Math.max(0, h.alarm - dt);
+  if (h.cooldown <= 0 && h.phase === 'idle') S.store.broken = false;
+  for (const m of h.muzzles) m.life -= dt;
+  h.muzzles = h.muzzles.filter((m) => m.life > 0);
+
+  if (h.phase === 'idle') {
+    if (S.t >= HOLDUP_LATE && h.cooldown <= 0 && S.police.state === 'off' && farLaneClear(S)) startHoldup(S);
+    return;
+  }
+  if (h.phase === 'pending') {
+    if (farLaneClear(S) && S.police.state === 'off') startHoldup(S);
+    return;
+  }
+  h.t += dt;
+
+  if (h.phase === 'arrive') {
+    h.mv = -Math.max(6, (h.mx - HOLDUP_MX) * 1.8);
+    h.mx += h.mv * dt;
+    h.mWheel += (h.mv * dt) / 2.2;
+    if (h.mx - HOLDUP_MX < 0.6) {
+      h.mx = HOLDUP_MX;
+      h.mv = 0;
+      h.phase = 'alarm';
+      h.t = 0;
+      S.store.broken = true;
+      h.alarm = 30;
+      burst(S, 'glass', STORE.x + 12, STORE.glassY + 3, 18, 45, 1);
+      S.bus.emit('sfx', { name: 'glass', x: STORE.x + 12 });
+      S.bus.emit('sfx', { name: 'alarm', on: true, x: STORE.x + 12 });
+      const door = STORE.doorX + 2;
+      h.robbers = [
+        { x: door, gy: PAVE_Y + 2, tx: HOLDUP_MX - 15, ty: FAR_GROUND, phase: 0, facing: -1, sack: true, pop: 0, inCar: false },
+        { x: door + 3, gy: PAVE_Y + 2, tx: HOLDUP_MX - 11, ty: FAR_GROUND, phase: 0.5, facing: -1, sack: false, pop: 0, inCar: false },
+      ];
+    }
+    return;
+  }
+
+  for (const r of h.robbers) if (!r.inCar && h.phase !== 'getaway') r.covered = moveFigure(r, dt, 22);
+
+  if (h.phase === 'alarm') {
+    if (h.t > 1.4) {
+      h.phase = 'police';
+      h.t = 0;
+      h.px = W + 20;
+      h.pv = -150;
+      const knobLeft = S.knob.x - KNOB_W / 2;
+      h.pStop = clamp(knobLeft - 20, HOLDUP_MX + 22, HOLDUP_MX + 26);
+      S.bus.emit('sfx', { name: 'policeIn', x: h.px });
+    }
+    return;
+  }
+
+  if (h.phase === 'police') {
+    const d = h.px - h.pStop;
+    if (d > 0.4) {
+      h.pv = -Math.max(10, Math.min(150, d * 3));
+      if (d < 30 && !h.skid) {
+        h.skid = true;
+        S.bus.emit('sfx', { name: 'squeal', x: h.px, k: 0.9 });
+      }
+      if (d < 30) spawnFx(S, 'smoke', h.px + 6, FAR_GROUND - 1, 10, -8, 0.8);
+      h.px += h.pv * dt;
+      h.pWheel += (h.pv * dt) / 2.2;
+    } else if (!h.officers.length) {
+      h.pv = 0;
+      h.officers = [
+        { x: h.px + 4, gy: FAR_GROUND, tx: h.px + 13, ty: FAR_GROUND, phase: 0, facing: 1, pop: 0 },
+        { x: h.px + 8, gy: FAR_GROUND, tx: h.px + 17, ty: FAR_GROUND, phase: 0.5, facing: 1, pop: 0 },
+      ];
+      S.bus.emit('sfx', { name: 'bullhorn', x: h.px });
+    }
+    for (const o of h.officers) o.covered = moveFigure(o, dt, 20);
+    if (h.officers.length && h.officers.every((o) => o.covered) && h.robbers.every((r) => r.covered)) {
+      h.phase = 'shootout';
+      h.t = 0;
+      h.shotIn = 0.3;
+    }
+    return;
+  }
+
+  if (h.phase === 'shootout') {
+    for (const f of [...h.robbers, ...h.officers]) {
+      f.pop = Math.max(0, f.pop - dt);
+      f.facing = h.robbers.includes(f) ? 1 : -1;
+    }
+    h.shotIn -= dt;
+    if (h.shotIn <= 0 && h.t < SHOOTOUT_SECONDS) {
+      fireShot(S);
+      h.shotIn = 0.22 + S.rng() * 0.4;
+    }
+    if (h.t >= SHOOTOUT_SECONDS + 0.4) {
+      h.phase = 'getaway';
+      h.t = 0;
+      h.skid = false;
+      for (const r of h.robbers) {
+        r.tx = HOLDUP_MX - 4;
+        r.ty = FAR_GROUND;
+      }
+      for (const o of h.officers) {
+        o.tx = h.px + 2;
+        o.ty = FAR_GROUND;
+      }
+    }
+    return;
+  }
+
+  if (h.phase === 'getaway') {
+    for (const r of h.robbers) if (!r.inCar && moveFigure(r, dt, 30)) r.inCar = true;
+    const robbersIn = h.robbers.every((r) => r.inCar);
+    if (robbersIn) {
+      if (!h.peeled) {
+        h.peeled = true;
+        S.bus.emit('sfx', { name: 'squeal', x: h.mx, k: 1 });
+        S.bus.emit('sfx', { name: 'roar', x: h.mx, k: 1 });
+      }
+      h.mv = Math.max(-240, h.mv - 260 * dt);
+      h.mx += h.mv * dt;
+      h.mWheel += (h.mv * dt) / 2.2;
+      if (h.mx > HOLDUP_MX - 30) spawnFx(S, 'smoke', h.mx + 12, FAR_GROUND - 1, 14 + Math.random() * 10, -10, 1);
+    }
+    if (h.t > 0.5) for (const o of h.officers) if (!o.inCar && moveFigure(o, dt, 30)) o.inCar = true;
+    if (robbersIn && h.officers.every((o) => o.inCar) && h.t > 1.3) {
+      h.pv = Math.max(-230, h.pv - 220 * dt);
+      h.px += h.pv * dt;
+      h.pWheel += (h.pv * dt) / 2.2;
+    }
+    if (h.mx < -40 && h.px < -40) {
+      h.phase = 'idle';
+      h.cooldown = 45;
+      h.peeled = false;
+      h.robbers = [];
+      h.officers = [];
+      S.bus.emit('sfx', { name: 'alarm', on: false });
+    }
+  }
+}
+
+const holdupBusy = (h) => h.phase !== 'idle' && h.phase !== 'pending';
+const holdupSirenOn = (h) => h.phase === 'police' || h.phase === 'shootout' || h.phase === 'getaway';
+
+function drawHoldup(F, S) {
+  const h = S.holdup;
+  if (!holdupBusy(h)) return;
+  F.curId = ID.NONE;
+  const lights = S.night > 0.3;
+  if (h.mx < W + 20) h.mBox = drawVehicle(F, 'muscle', MUSCLE_BODY, h.mx, FAR_GROUND, -1, { lights, wheel: h.mWheel, brake: h.phase === 'arrive' });
+  for (const r of h.robbers) {
+    if (r.inCar) continue;
+    const moving = Math.abs(r.tx - r.x) > 0.5 || Math.abs(r.ty - r.gy) > 0.5;
+    const pose = moving ? 'run' : h.phase === 'shootout' ? (r.pop > 0 ? 'aim' : 'crouch') : 'crouch';
+    drawFigure(F, 'robber', r.x, Math.round(r.gy), pose, r.facing, r.phase, { sack: r.sack });
+  }
+  F.curId = ID.POLICE;
+  if (h.phase !== 'arrive' && h.phase !== 'alarm' && h.px < W + 20) h.pBox = drawVehicle(F, 'police', VEH_COLORS.k, h.px, FAR_GROUND, -1, { lights: true, bar: h.bar, wheel: h.pWheel });
+  F.curId = ID.NONE;
+  for (const o of h.officers) {
+    if (o.inCar) continue;
+    const moving = Math.abs(o.tx - o.x) > 0.5;
+    const pose = moving ? 'run' : h.phase === 'shootout' ? (o.pop > 0 ? 'aim' : 'crouch') : 'crouch';
+    drawFigure(F, 'officer', o.x, Math.round(o.gy), pose, o.facing, o.phase);
+  }
+  for (const m of h.muzzles) {
+    addGlow(F, m.x, m.y, hex('#fff1b0'), 3);
+    addGlow(F, m.x + m.dir, m.y, hex('#ffb347'), 2);
+    addGlow(F, m.x + m.dir, m.y - 1, hex('#ffb347'), 1.2);
+  }
+}
+
+// ---- actors/taps.js
+// Tapping the scene. Each target reacts and emits its own synthesised sound.
+// Touches on the knob always mean the car (handled by the input layer).
+
+const BIG_TARGETS = new Set([ID.SKY, ID.SEA, ID.ROAD]);
+
+function tappable(id) {
+  return id !== ID.NONE;
+}
+
+function tapCar(S) {
+  const c = S.car;
+  c.hop.v = 62;
+  S.bus.emit('sfx', { name: 'hop', x: c.x });
+  S.bus.emit('sfx', { name: 'honk', x: c.x, delay: 0.32 });
+  resetIdle(S);
+}
+
+function handleTap(S, id, x, y) {
+  resetIdle(S);
+  if (id === ID.ROAD) {
+    S.knob.target = clamp(x, KNOB_MIN, KNOB_MAX);
+    return;
+  }
+  if (id >= ID.PALM0 && id < ID.PALM0 + PALMS.length) return tapPalm(S, id - ID.PALM0);
+  if (id >= ID.WIN0 && id < ID.WIN0 + S.windows.length) return tapWindow(S, S.windows[id - ID.WIN0]);
+  if (id >= ID.NEON0 && id < ID.NEON0 + NEON_SIGNS.length) return tapNeon(S, id - ID.NEON0);
+  if (id >= ID.TRAFFIC0 && id < ID.TRAFFIC0 + 10) {
+    const car = S.traffic.find((c) => c.slot === id - ID.TRAFFIC0);
+    if (car) {
+      car.flash = 0.6;
+      S.bus.emit('sfx', { name: 'carHonk', x: car.x, pitch: car.honkPitch });
+    }
+    return;
+  }
+  switch (id) {
+    case ID.STORE:
+      S.store.doorT = 1.6;
+      S.store.wave = 1.4;
+      S.bus.emit('sfx', { name: 'chime', x: STORE.x + 20 });
+      storeTapped(S);
+      return;
+    case ID.DINER:
+      return tapDiner(S);
+    case ID.SEA:
+      if (!S.dolphin) {
+        S.dolphin = { x0: clamp(x - 9, 0, BEACH_END - 22), t: 0, dur: 1.5, splashed: false };
+        S.bus.emit('sfx', { name: 'dolphin', x });
+      }
+      return;
+    case ID.LIFEGUARD:
+      S.flag = 1;
+      S.bus.emit('sfx', { name: 'whistle', x: TOWER.x + 4 });
+      return;
+    case ID.POLICE:
+      S.bus.emit('sfx', { name: 'bullhorn', x });
+      S.bus.emit('sfx', { name: 'radio', x, delay: 0.55 });
+      return;
+    case ID.HELI:
+      S.heli.tapT = 6;
+      S.bus.emit('sfx', { name: 'squelch', x });
+      return;
+    case ID.SKY:
+      if (S.t > 0.55) {
+        S.shootingStar = { x: x - 10, y: Math.max(1, y - 4), vx: 70, vy: 26, life: 1 };
+        S.bus.emit('sfx', { name: 'shootingStar', x });
+      } else {
+        const fromLeft = x > W / 2;
+        S.gulls.push({ x: fromLeft ? -4 : W + 4, y: clamp(y, 3, 16), vx: fromLeft ? 34 : -34, vy: 0, flap: 0, visitor: true, tx: x });
+        S.bus.emit('sfx', { name: 'gull', x });
+      }
+  }
+}
+
+function tapPalm(S, i) {
+  const p = S.palms[i];
+  p.shake = 1.3;
+  S.bus.emit('sfx', { name: 'rustle', x: PALMS[i].x });
+  if (p.nuts <= 0) return;
+  p.nuts--;
+  p.regrow = 18;
+  const crown = PALMS[i];
+  const cx = crown.x + (crown.beach ? -2 : i % 2 === 0 ? 2 : -2);
+  const underCar = Math.abs(S.car.x - cx) < 11;
+  S.nuts.push({ x: cx, y: crown.top + 2, vx: (Math.random() - 0.5) * 8, vy: 0, floor: underCar ? NEAR_GROUND - 1 : PAVE_Y + 2, rest: 0, hitDog: false });
+}
+
+function tapWindow(S, win) {
+  if (win.seq > 0) return;
+  win.seq = 2.6;
+  win.popped = false;
+  S.bus.emit('sfx', { name: 'knock3', x: win.x + 1 });
+}
+
+function tapNeon(S, i) {
+  const st = S.neon[i];
+  st.short = 1.4;
+  const s = NEON_SIGNS[i];
+  for (let k = 0; k < 10; k++) {
+    const [x, y] = s.pixels[Math.floor(Math.random() * s.pixels.length)];
+    spawnFx(S, 'crackle', x, y, (Math.random() - 0.5) * 50, -20 - Math.random() * 30, 0.4 + Math.random() * 0.3);
+  }
+  S.bus.emit('sfx', { name: 'short', x: s.cx });
+}
+
+function tapDiner(S) {
+  S.bus.emit('sfx', { name: 'orderBell', x: DINER.x + 12 });
+  const ch = S.carhop;
+  if (ch.state !== 'idle') return;
+  ch.state = 'out';
+  ch.x = DINER.x + DINER.w - 4;
+  ch.gy = PAVE_Y + 2;
+  ch.lastSeam = Math.floor(ch.x / PAVE_SEAM);
+  S.bus.emit('sfx', { name: 'skates', on: true });
+}
+
+function stepTaps(S, dt) {
+  for (const p of S.palms) {
+    p.shake = Math.max(0, p.shake - dt);
+    if (p.nuts < 3) {
+      p.regrow -= dt;
+      if (p.regrow <= 0) {
+        p.nuts++;
+        p.regrow = 18;
+      }
+    }
+  }
+
+  for (const win of S.windows) {
+    win.forced = Math.max(0, win.forced - dt);
+    win.silT = Math.max(0, win.silT - dt);
+    if (win.seq <= 0) continue;
+    win.seq -= dt;
+    const elapsed = 2.6 - win.seq;
+    if (elapsed > 0.8 && win.forced <= 0) {
+      win.forced = 5;
+      win.silT = 1.6;
+    }
+    if (elapsed > 1.15 && !win.popped) {
+      win.popped = true;
+      addPop(S, '!', win.x + 1, win.y - 7, 1.5);
+      S.bus.emit('sfx', { name: 'hey', x: win.x + 1 });
+    }
+  }
+
+  const st = S.store;
+  st.doorT = Math.max(0, st.doorT - dt);
+  st.wave = Math.max(0, st.wave - dt);
+  const doorTarget = st.doorT > 0.4 || S.holdup.phase === 'alarm' ? 1 : 0;
+  st.door = clamp(st.door + (doorTarget ? dt * 4 : -dt * 3), 0, 1);
+
+  stepCarhop(S, dt);
+
+  if (S.dolphin) {
+    const d = S.dolphin;
+    d.t += dt;
+    if (!d.splashed) {
+      d.splashed = true;
+      burst(S, 'splash', d.x0, SAND_Y - 3, 8, 30, 0.6);
+    }
+    if (d.t >= d.dur) {
+      burst(S, 'splash', d.x0 + 18, SAND_Y - 3, 10, 34, 0.7);
+      S.dolphin = null;
+    }
+  }
+
+  S.flag = Math.max(0, S.flag - dt * 0.4);
+
+  if (S.shootingStar) {
+    const s = S.shootingStar;
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.life -= dt * 0.9;
+    if (s.life <= 0 || s.y > HORIZON) S.shootingStar = null;
+  }
+
+  stepGulls(S, dt);
+}
+
+function stepCarhop(S, dt) {
+  const ch = S.carhop;
+  if (ch.state === 'idle') return;
+  const home = DINER.x + DINER.w - 4;
+  const speed = 34;
+  if (ch.state === 'out') {
+    const tx = S.car.x + S.car.facing * 2;
+    const ty = KERB_Y + 1;
+    const dx = tx - ch.x;
+    const dy = ty - ch.gy;
+    const d = Math.hypot(dx, dy);
+    if (d < 1.5) {
+      ch.state = 'hand';
+      ch.t = 1.1;
+      S.car.drink = 3.2;
+      S.bus.emit('sfx', { name: 'skates', on: false });
+      S.bus.emit('sfx', { name: 'slurp', x: S.car.x, delay: 0.4 });
+      for (let i = 0; i < 4; i++) addPop(S, 'heart', S.car.x + (Math.random() - 0.5) * 6, NEAR_GROUND - 11 - i * 2, 1.6 + i * 0.3);
+    } else {
+      const s = Math.min(d, speed * dt);
+      ch.x += (dx / d) * s;
+      ch.gy += (dy / d) * s;
+      ch.facing = dx < 0 ? -1 : 1;
+    }
+  } else if (ch.state === 'hand') {
+    ch.t -= dt;
+    if (ch.t <= 0) {
+      ch.state = 'back';
+      S.bus.emit('sfx', { name: 'skates', on: true });
+    }
+  } else if (ch.state === 'back') {
+    const dx = home - ch.x;
+    const dy = PAVE_Y + 2 - ch.gy;
+    const d = Math.hypot(dx, dy);
+    if (d < 1) {
+      ch.state = 'idle';
+      S.bus.emit('sfx', { name: 'skates', on: false });
+    } else {
+      const s = Math.min(d, speed * dt);
+      ch.x += (dx / d) * s;
+      ch.gy += (dy / d) * s;
+      ch.facing = dx < 0 ? -1 : 1;
+    }
+  }
+  ch.phase += dt * 6;
+  // Wheels click on the paving seams.
+  const seam = Math.floor(ch.x / PAVE_SEAM);
+  if (seam !== ch.lastSeam && ch.gy < KERB_Y) S.bus.emit('sfx', { name: 'seamClick', x: ch.x });
+  ch.lastSeam = seam;
+}
+
+function drawCarhop(F, S) {
+  const ch = S.carhop;
+  if (ch.state === 'idle') return;
+  F.curId = ID.NONE;
+  drawFigure(F, 'carhop', ch.x, Math.round(ch.gy), 'stand', ch.facing, ch.phase, { skates: true, shake: ch.state === 'out' });
+}
+
+function stepGulls(S, dt) {
+  const day = S.t < 0.45;
+  if (day && S.gulls.filter((g) => !g.visitor).length < 2 && S.rng() < dt * 0.5) {
+    S.gulls.push({ x: -4, y: 4 + S.rng() * 9, vx: 9 + S.rng() * 6, vy: 0, flap: S.rng() * TAU });
+  }
+  for (const g of S.gulls) {
+    g.flap += dt * (g.visitor ? 9 : 6);
+    g.x += g.vx * dt;
+    g.y += Math.sin(g.flap * 0.3) * dt * 2;
+    if (!g.visitor && day && g.x > BEACH_END + 4) g.vx = -Math.abs(g.vx);
+    if (!g.visitor && day && g.x < -2 && g.vx < 0) g.vx = Math.abs(g.vx);
+  }
+  S.gulls = S.gulls.filter((g) => g.x > -8 && g.x < W + 8);
+}
+
+function hoverIsBig(id) {
+  return BIG_TARGETS.has(id);
+}
+
+// ---- actors/idle.js
+// Stop for a few seconds and the dog drums on the door in time with the music
+// (soft knocks, the backbeat harder) while the cat bobs her head.
+// After a while he leans on the horn and barks.
+const IDLE_DRUM_AFTER = 4;
+const IDLE_HORN_AFTER = 14;
+const IDLE_HORN_EVERY = 16;
+
+function createIdle() {
+  return { still: 0, lastBeat: -1, nextHorn: IDLE_HORN_AFTER };
+}
+
+function resetIdle(S) {
+  S.idle.still = 0;
+  S.idle.nextHorn = IDLE_HORN_AFTER;
+}
+
+function stepIdle(S, dt) {
+  const I = S.idle;
+  const busy = S.knob.grabbed || Math.abs(S.car.v) > 3 || S.car.duck > 0.1 || S.car.drink > 0;
+  if (busy) {
+    resetIdle(S);
+    return;
+  }
+  I.still += dt;
+  if (I.still < IDLE_DRUM_AFTER) return;
+  const beat = Math.floor(S.beat);
+  if (beat !== I.lastBeat) {
+    I.lastBeat = beat;
+    S.car.paw = 1;
+    S.car.catBob = 1;
+    S.bus.emit('sfx', { name: 'drum', hard: beat % 2 === 1, x: S.car.x });
+  }
+  if (I.still >= I.nextHorn) {
+    I.nextHorn = I.still + IDLE_HORN_EVERY;
+    S.car.lean = 1.4;
+    S.bus.emit('sfx', { name: 'longHonk', x: S.car.x });
+    S.bus.emit('sfx', { name: 'bark', x: S.car.x, delay: 1.0 });
+    S.bus.emit('sfx', { name: 'bark', x: S.car.x, delay: 1.3 });
+  }
+}
+
+// ---- gfx/light.js
+// Light pass: ambient + banded (Bayer-dithered) lights on albedo, plus switched emission
+// and a soft halo. Produces an RGBA8 image for the glass shader.
+
+function createShadeBuffers() {
+  const n = W * H;
+  return { L: new Float32Array(n * 3), E: new Float32Array(n * 3), HS: new Float32Array(n * 3), T: new Float32Array(n * 3) };
+}
+
+const LIGHT_BANDS = 4;
+
+function applyLight(B, l, k) {
+  const { L, E } = B;
+  const c = l.color;
+  const air = l.air || 0;
+  const add = (x, y, f) => {
+    if (f <= 0) return;
+    const v = dither(f * k, x, y, LIGHT_BANDS);
+    const i = (y * W + x) * 3;
+    if (v > 0) {
+      L[i] += c[0] * v;
+      L[i + 1] += c[1] * v;
+      L[i + 2] += c[2] * v;
+    }
+    if (air > 0) {
+      const a = dither(f * air * k, x, y, 6);
+      E[i] += c[0] * a;
+      E[i + 1] += c[1] * a;
+      E[i + 2] += c[2] * a;
+    }
+  };
+  if (l.kind === 'point') {
+    const x0 = Math.max(0, Math.floor(l.x - l.r));
+    const x1 = Math.min(W - 1, Math.ceil(l.x + l.r));
+    const y0 = Math.max(l.yMin || 0, Math.floor(l.y - l.r));
+    const y1 = Math.min(H - 1, Math.ceil(l.y + l.r));
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const d = Math.hypot(x - l.x, y - l.y) / l.r;
+        if (d < 1) add(x, y, (1 - d) * (1 - d));
+      }
+  } else if (l.kind === 'pool') {
+    const x0 = Math.max(0, Math.floor(l.x - l.rx));
+    const x1 = Math.min(W - 1, Math.ceil(l.x + l.rx));
+    const y0 = Math.max(l.yMin || 0, Math.floor(l.y - l.ry));
+    const y1 = Math.min(H - 1, Math.ceil(l.y + l.ry));
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const d = Math.hypot((x - l.x) / l.rx, (y - l.y) / l.ry);
+        if (d < 1) add(x, y, 1 - d * d);
+      }
+  } else if (l.kind === 'cone') {
+    const dx = l.bx - l.ax;
+    const dy = l.by - l.ay;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+    const pad = Math.max(l.w0, l.w1) + 1;
+    const x0 = Math.max(0, Math.floor(Math.min(l.ax, l.bx) - pad));
+    const x1 = Math.min(W - 1, Math.ceil(Math.max(l.ax, l.bx) + pad));
+    const y0 = Math.max(0, Math.floor(Math.min(l.ay, l.by) - pad));
+    const y1 = Math.min(H - 1, Math.ceil(Math.max(l.ay, l.by) + pad));
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const rx = x - l.ax;
+        const ry = y - l.ay;
+        const s = (rx * ux + ry * uy) / len;
+        if (s < 0 || s > 1) continue;
+        const q = Math.abs(rx * -uy + ry * ux);
+        const wdt = lerp(l.w0, l.w1, s);
+        if (q > wdt) continue;
+        add(x, y, (1 - s * 0.55) * (1 - (q / wdt) * 0.6));
+      }
+  }
+}
+
+// opts: { levels, ambient, flash, rim: {x, dir, k} | null, hover }
+function shade(F, lights, opts, B, out) {
+  const { L, E, HS, T } = B;
+  const n = W * H;
+  const { levels, ambient, flash } = opts;
+  for (let i = 0; i < n; i++) {
+    const j = i * 3;
+    L[j] = ambient[0] + flash;
+    L[j + 1] = ambient[1] + flash * 0.9;
+    L[j + 2] = ambient[2] + flash * 0.7;
+    E[j] = E[j + 1] = E[j + 2] = 0;
+  }
+  for (const l of lights) {
+    const lv = levels[l.group] * (l.level === undefined ? 1 : l.level);
+    if (lv > 0.01) applyLight(B, l, l.power * lv);
+  }
+
+  // A bright dithered rim trails the knob.
+  const rim = opts.rim;
+  if (rim) {
+    const span = 7;
+    for (let y = 0; y < H; y++)
+      for (let d = 0; d < span; d++) {
+        const x = Math.round(rim.x - rim.dir * d);
+        if (x < 0 || x >= W) continue;
+        const v = dither((1 - d / span) * rim.k, x, y, LIGHT_BANDS);
+        const i = (y * W + x) * 3;
+        L[i] += 1.0 * v;
+        L[i + 1] += 0.72 * v;
+        L[i + 2] += 0.42 * v;
+      }
+  }
+
+  for (let i = 0; i < n; i++) {
+    const j = i * 3;
+    const lv = levels[F.grp[i]];
+    const er = F.emi[j] * lv;
+    const eg = F.emi[j + 1] * lv;
+    const eb = F.emi[j + 2] * lv;
+    E[j] += er;
+    E[j + 1] += eg;
+    E[j + 2] += eb;
+    const h = F.halo[i];
+    HS[j] = h ? er : 0;
+    HS[j + 1] = h ? eg : 0;
+    HS[j + 2] = h ? eb : 0;
+  }
+  boxBlur(HS, T, 2);
+  boxBlur(HS, T, 2);
+
+  const hover = opts.hover || 0;
+  const big = hoverIsBig(hover);
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      const j = i * 3;
+      let r = F.alb[j] * L[j] + E[j] + dither(HS[j] * 0.7, x, y, 8);
+      let g = F.alb[j + 1] * L[j + 1] + E[j + 1] + dither(HS[j + 1] * 0.7, x, y, 8);
+      let b = F.alb[j + 2] * L[j + 2] + E[j + 2] + dither(HS[j + 2] * 0.7, x, y, 8);
+      if (hover) {
+        const id = F.id[i];
+        if (id === hover) {
+          const k = big ? 0.05 : 0.12;
+          r += k;
+          g += k;
+          b += k * 0.8;
+        } else if (!big && ((x > 0 && F.id[i - 1] === hover) || (x < W - 1 && F.id[i + 1] === hover) || (y > 0 && F.id[i - W] === hover) || (y < H - 1 && F.id[i + W] === hover))) {
+          r = lerp(r, 1, 0.75);
+          g = lerp(g, 0.95, 0.75);
+          b = lerp(b, 0.7, 0.75);
+        }
+      }
+      const o = i * 4;
+      out[o] = r >= 1 ? 255 : r <= 0 ? 0 : (r * 255) | 0;
+      out[o + 1] = g >= 1 ? 255 : g <= 0 ? 0 : (g * 255) | 0;
+      out[o + 2] = b >= 1 ? 255 : b <= 0 ? 0 : (b * 255) | 0;
+      out[o + 3] = 255;
+    }
+}
+
+// Separable box blur, in place via tmp.
+function boxBlur(A, T, r) {
+  const norm = 1 / (2 * r + 1);
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++)
+      for (let ch = 0; ch < 3; ch++) {
+        let s = 0;
+        for (let k = -r; k <= r; k++) {
+          const xx = x + k < 0 ? 0 : x + k >= W ? W - 1 : x + k;
+          s += A[(y * W + xx) * 3 + ch];
+        }
+        T[(y * W + x) * 3 + ch] = s * norm;
+      }
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++)
+      for (let ch = 0; ch < 3; ch++) {
+        let s = 0;
+        for (let k = -r; k <= r; k++) {
+          const yy = y + k < 0 ? 0 : y + k >= H ? H - 1 : y + k;
+          s += T[(yy * W + x) * 3 + ch];
+        }
+        A[(y * W + x) * 3 + ch] = s * norm;
+      }
+}
+
+// ---- core/world.js
+// World state, the fixed-step simulation, scene painting order, lights and switch levels.
+
+const AMBIENT = { gold: hex('#fff0dc'), dusk: hex('#a77aa8'), night: hex('#3a3a6a') };
+
+function createSwitches(windows) {
+  const list = [];
+  for (const win of windows) if (!win.dark) list.push({ kind: 'window', group: GROUP.WIN0 + win.i, gate: win.gate });
+  list.push({ kind: 'warm', group: GROUP.HOTEL, gate: HOTEL.x + 14 });
+  list.push({ kind: 'fluor', group: GROUP.STORE, gate: STORE.x + 8, x: STORE.x + 12 });
+  list.push({ kind: 'warm', group: GROUP.DINER, gate: DINER.x + 8 });
+  list.push({ kind: 'warm', group: GROUP.CLUB, gate: CLUB.x + 10 });
+  for (const [i, x] of LAMPS.entries()) list.push({ kind: 'lamp', group: GROUP.LAMP0 + i, gate: x + 2, x });
+  for (const [i, s] of NEON_SIGNS.entries()) list.push({ kind: 'neon', sign: i, groups: s.groups, gate: s.cx, x: s.cx });
+  for (const sw of list) {
+    sw.on = false;
+    sw.catchT = 9;
+  }
+  return list;
+}
+
+function createWorld(seed = 66) {
+  const windows = hotelWindows().map((w) => ({ ...w, forced: 0, silT: 0, seq: 0, popped: false }));
+  const t0 = 0.08;
+  const S = {
+    bus: createBus(),
+    rng: mulberry32(seed),
+    time: 0,
+    beat: 0,
+    beatClock: null, // set by the audio layer so drums and chases lock to the music
+    t: t0,
+    night: 0,
+    sky: skyStops(t0),
+    ambient: AMBIENT.gold,
+    flash: 0,
+    reducedMotion: false,
+    knob: { x: knobX(t0), v: 0, target: knobX(t0), grabbed: false, stretch: 0, wob: { x: 0, v: 0 }, acc: 0 },
+    car: createCar(),
+    traffic: [],
+    trafficState: { spawnIn: 1.5 },
+    police: createPolice(),
+    heli: createHeli(),
+    holdup: createHoldup(),
+    fx: [],
+    pops: [],
+    nuts: [],
+    gulls: [],
+    windows,
+    switches: createSwitches(windows),
+    neon: createNeonState(),
+    palms: PALMS.map(() => ({ shake: 0, nuts: 3, regrow: 0 })),
+    store: { door: 0, doorT: 0, wave: 0, broken: false },
+    carhop: { state: 'idle', x: 0, gy: 0, facing: -1, phase: 0, t: 0, lastSeam: 0 },
+    dolphin: null,
+    flag: 0,
+    shootingStar: null,
+    idle: createIdle(),
+    hover: 0,
+    status: 'Cruising',
+    levels: { rail: new Float32Array(GROUP_COUNT), full: new Float32Array(GROUP_COUNT) },
+  };
+  S.car.x = S.knob.x;
+  return S;
+}
+
+// Knob: follows the target on a spring, stretches with speed, wobbles when it stops.
+function stepKnob(S, dt) {
+  const k = S.knob;
+  const prevV = k.v;
+  springStep(k, k.target, 170, 2 * Math.sqrt(170) * 0.78, dt);
+  if (k.x < KNOB_MIN) {
+    k.x = KNOB_MIN;
+    k.v = Math.max(0, k.v);
+  }
+  if (k.x > KNOB_MAX) {
+    k.x = KNOB_MAX;
+    k.v = Math.min(0, k.v);
+  }
+  k.acc = (k.v - prevV) / dt;
+  k.stretch = lerp(k.stretch, clamp(Math.abs(k.v) / 700, 0, 0.32), 1 - Math.exp(-dt * 18));
+  // Damped wobble fed by the acceleration.
+  k.wob.v += (-k.wob.x * 260 - k.wob.v * 9 + clamp(k.acc, -4000, 4000) * 0.00045) * dt;
+  k.wob.x += k.wob.v * dt;
+}
+
+function stepSwitches(S, dt) {
+  for (const sw of S.switches) {
+    const on = S.knob.x > sw.gate;
+    sw.catchT += dt;
+    if (on && !sw.on) {
+      sw.catchT = 0;
+      if (sw.kind === 'neon') S.bus.emit('sfx', { name: 'neonOn', x: sw.x });
+      else if (sw.kind === 'lamp' || sw.kind === 'fluor') S.bus.emit('sfx', { name: 'lampOn', x: sw.x });
+    }
+    sw.on = on;
+  }
+  for (const n of S.neon) n.short = Math.max(0, n.short - dt);
+}
+
+function switchLevel(sw) {
+  if (!sw.on) return 0;
+  const t = sw.catchT;
+  if (sw.kind === 'neon') return neonCatchLevel(t, sw.sign + 3);
+  if (sw.kind === 'lamp') return t < 0.08 ? 0.5 : lerp(0.35, 1, smooth(0, 1.4, t));
+  if (sw.kind === 'fluor') return t > 0.7 ? 1 : hash2(Math.floor(t * 18), 9) < 0.45 ? 1 : 0.1;
+  return t < 0.12 ? 0.5 : 1;
+}
+
+function computeLevels(S) {
+  const R = S.levels.rail;
+  const Fu = S.levels.full;
+  R.fill(0);
+  Fu.fill(0);
+  R[GROUP.ALWAYS] = Fu[GROUP.ALWAYS] = 1;
+  R[GROUP.SKY] = Fu[GROUP.SKY] = 1;
+  R[GROUP.TOWERS] = Fu[GROUP.TOWERS] = smooth(0.25, 0.6, S.t);
+  for (const sw of S.switches) {
+    const rail = switchLevel(sw);
+    if (sw.kind === 'neon') {
+      const st = S.neon[sw.sign];
+      const sh = neonShortLevel(st, S.time, sw.sign + 1);
+      for (const [li, g] of sw.groups.entries()) {
+        const chase = sw.groups.length > 1 ? sunsetChase(S, li) : 1;
+        R[g] = rail * sh * chase;
+        Fu[g] = sh * chase;
+      }
+    } else {
+      R[sw.group] = rail;
+      Fu[sw.group] = 1;
+    }
+  }
+}
+
+function stepWorld(S, dt) {
+  S.time += dt;
+  S.beat = S.beatClock ? S.beatClock() : (S.time * 100) / 60;
+  stepKnob(S, dt);
+  S.t = knobT(S.knob.x);
+  S.night = smooth(0.45, 0.8, S.t);
+  S.sky = skyStops(S.t);
+  S.ambient = ramp3(AMBIENT.gold, AMBIENT.dusk, AMBIENT.night, S.t, 0.5);
+  S.flash = Math.max(0, S.flash - dt * 9);
+  stepSwitches(S, dt);
+  stepCar(S, dt);
+  stepTraffic(S, dt);
+  stepPolice(S, dt);
+  stepHoldup(S, dt);
+  stepHeli(S, dt);
+  stepTaps(S, dt);
+  stepCoconuts(S, dt);
+  stepFx(S, dt);
+  stepIdle(S, dt);
+  S.status = computeStatus(S);
+}
+
+function computeStatus(S) {
+  const h = holdupStatus(S.holdup);
+  if (h) return h;
+  if (S.police.state === 'chase') return 'Pursuit';
+  if (S.police.lostT > 0) return 'Lost them';
+  if (Math.abs(S.car.v) * PX_TO_MPH > SPEEDING_MPH) return 'Speeding';
+  return 'Cruising';
+}
+
+function drawScene(F, S) {
+  frameClear(F);
+  drawSky(F, S);
+  drawFarTowers(F, S);
+  drawBeach(F, S);
+  drawGulls(F, S);
+  drawPalm(F, S, 0);
+  drawSeaWall(F);
+  drawGround(F);
+  drawCity(F, S);
+  drawNeon(F, S);
+  drawStreetFurniture(F, S);
+  drawHeli(F, S);
+  drawTraffic(F, S);
+  drawHoldup(F, S);
+  drawCarhop(F, S);
+  drawPolice(F, S);
+  S.carBox = drawCar(F, S);
+  drawCoconuts(F, S);
+  drawFx(F, S);
+  drawPops(F, S);
+}
+
+function headBeam(front, groundY, dir) {
+  return { kind: 'cone', ax: front, ay: groundY - 3, bx: front + dir * 30, by: groundY, w0: 1, w1: 4.5, color: HEAD_LIGHT, power: 0.75, air: 0.1, group: GROUP.ALWAYS };
+}
+
+function buildLights(S) {
+  const out = [];
+  for (const [i, x] of LAMPS.entries()) {
+    out.push({ kind: 'pool', x, y: 40, rx: 14, ry: 6, yMin: PAVE_Y, color: SODIUM, power: 0.95, group: GROUP.LAMP0 + i });
+    out.push({ kind: 'point', x, y: 22, r: 7, color: SODIUM, power: 0.55, group: GROUP.LAMP0 + i });
+  }
+  for (const s of NEON_SIGNS) out.push({ kind: 'point', x: s.cx, y: s.cy, r: s.name === 'SUNSET' ? 14 : 10, color: s.color, power: 0.32, group: s.groups[0] });
+  out.push({ kind: 'pool', x: STORE.x + 13, y: 36, rx: 16, ry: 3, yMin: PAVE_Y, color: FLUOR, power: 0.55, group: GROUP.STORE });
+  out.push({ kind: 'pool', x: DINER.x + 12, y: 36, rx: 13, ry: 3, yMin: PAVE_Y, color: hex('#ffcf8f'), power: 0.45, group: GROUP.DINER });
+  out.push({ kind: 'pool', x: HOTEL.x + 14, y: 36, rx: 8, ry: 2.5, yMin: PAVE_Y, color: hex('#ffcf8a'), power: 0.45, group: GROUP.HOTEL });
+  out.push({ kind: 'point', x: CLUB.x + 19, y: 31, r: 10, color: hex('#d35dff'), power: 0.3, group: GROUP.CLUB });
+
+  const lightsOn = S.night > 0.3;
+  if (lightsOn) {
+    for (const c of S.traffic) if (c.box) out.push(headBeam(c.box.front, FAR_GROUND, -1));
+    if (S.carBox && S.night > 0.35) out.push(headBeam(S.carBox.front, NEAR_GROUND, S.car.facing));
+    const h = S.holdup;
+    if (holdupBusy(h) && h.mBox && h.mx < W + 10) out.push(headBeam(h.mBox.front, FAR_GROUND, -1));
+  }
+  const pushBar = (x, y, phase) => {
+    const red = Math.sin(phase * TAU) > 0;
+    out.push({ kind: 'point', x, y, r: 17, color: red ? BAR_RED : BAR_BLUE, power: 1.1, group: GROUP.ALWAYS });
+  };
+  const P = S.police;
+  if (P.state !== 'off' && P.box) {
+    pushBar(P.x, P.box.y0, P.bar);
+    out.push(headBeam(P.box.front, policeGround(P), P.facing));
+  }
+  const h = S.holdup;
+  if (holdupBusy(h) && h.pBox && h.phase !== 'arrive' && h.phase !== 'alarm') pushBar(h.px, h.pBox.y0, h.bar);
+  if (h.alarm > 0 && Math.sin(S.time * 12) > 0) out.push({ kind: 'point', x: STORE.x + 13, y: 27, r: 22, color: hex('#ff2a2a'), power: 0.9, group: GROUP.ALWAYS });
+  for (const m of h.muzzles) out.push({ kind: 'point', x: m.x, y: m.y, r: 20, color: hex('#ffd27a'), power: 2.2, group: GROUP.ALWAYS });
+
+  const Hh = S.heli;
+  if (Hh.state === 'in' && Hh.lamp) {
+    const bx = Hh.beam.x;
+    out.push({ kind: 'cone', ax: Hh.lamp.x, ay: Hh.lamp.y, bx, by: 45, w0: 0.8, w1: 7, color: SEARCH, power: 0.55, air: 0.22, group: GROUP.ALWAYS });
+    out.push({ kind: 'pool', x: bx, y: 45, rx: 9, ry: 3.2, color: SEARCH, power: 1.2, group: GROUP.ALWAYS });
+  }
+  return out;
+}
+
+// ---- gfx/glass.js
+// One full-canvas WebGL2 fragment shader: moulded bezel with a soft shadow, the scene
+// sampled with nearest filtering, and the amber aviator-glass capsule knob.
+
+const MARGIN = { x: 16, top: 12, bottom: 24 }; // scene px around the track (room for bezel and shadow)
+
+const GLASS_VS = `#version 300 es
+in vec2 aPos;
+void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
+
+const GLASS_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uRail;
+uniform sampler2D uFull;
+uniform vec2 uRes;      // canvas size, device px
+uniform float uScale;   // device px per scene px
+uniform vec2 uOrigin;   // track top-left, device px
+uniform vec2 uKnob;     // knob centre, scene px
+uniform vec2 uKnobHalf; // knob half size after stretch, scene px
+uniform float uNight;
+out vec4 outColor;
+
+const vec2 SCENE = vec2(${W}.0, ${H}.0);
+const float BEZEL = 6.0;
+const float MAG = 0.78;     // UV scale inside the lens (≈1.28× magnification)
+const float LOW = 5.5;      // sample slightly low so the whole car shows
+
+float sdRoundBox(vec2 p, vec2 b, float r) {
+  vec2 q = abs(p) - b + r;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+float sdTrack(vec2 p) { return sdRoundBox(p - SCENE * 0.5, SCENE * 0.5, SCENE.y * 0.5); }
+float sdBezel(vec2 p) { return sdRoundBox(p - SCENE * 0.5, SCENE * 0.5 + BEZEL, SCENE.y * 0.5 + BEZEL); }
+float sdKnob(vec2 p) { return sdRoundBox(p - uKnob, uKnobHalf, min(uKnobHalf.x, uKnobHalf.y)); }
+
+vec3 fetch(sampler2D t, vec2 p) {
+  ivec2 ip = ivec2(clamp(floor(p), vec2(0.0), SCENE - 1.0));
+  return texelFetch(t, ip, 0).rgb;
+}
+
+vec2 gradK(vec2 p) {
+  vec2 e = vec2(0.25, 0.0);
+  return normalize(vec2(sdKnob(p + e.xy) - sdKnob(p - e.xy), sdKnob(p + e.yx) - sdKnob(p - e.yx)) + 1e-5);
+}
+
+void main() {
+  vec2 dev = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
+  vec2 p = (dev - uOrigin) / uScale;
+  float aa = 1.0 / uScale;
+
+  vec3 col = vec3(0.0);
+  float alpha = 0.0;
+
+  // Soft drop shadow on the page, fading out well before the canvas edge.
+  float dS = sdBezel(p - vec2(0.0, 5.0));
+  float shadow = (1.0 - smoothstep(-4.0, 9.0, dS)) * 0.34;
+  alpha = shadow;
+
+  // Moulded bezel: cream by day, dark plum at night.
+  float dB = sdBezel(p);
+  vec3 bezDay = vec3(0.97, 0.93, 0.86);
+  vec3 bezNight = vec3(0.22, 0.12, 0.24);
+  vec3 bez = mix(bezDay, bezNight, uNight);
+  if (dB < aa) {
+    float ringT = clamp(-dB / BEZEL, 0.0, 1.0);          // 0 outer edge → 1 inner edge
+    float vy = (p.y - SCENE.y * 0.5) / (SCENE.y * 0.5 + BEZEL);
+    float dome = sin(ringT * 3.14159);
+    vec3 c = bez * (0.86 + 0.22 * dome - 0.16 * vy);
+    c += vec3(1.0) * pow(max(0.0, -vy), 3.0) * smoothstep(0.0, 0.25, ringT) * (1.0 - ringT) * mix(0.35, 0.12, uNight);
+    c *= 1.0 - 0.25 * smoothstep(0.75, 1.0, ringT);       // lip toward the track
+    float a = smoothstep(aa, -aa, dB);
+    col = mix(col, c, a);
+    alpha = mix(alpha, 1.0, a);
+  }
+
+  // The scene in the track.
+  float dT = sdTrack(p);
+  if (dT < aa) {
+    vec3 sc = fetch(uRail, p);
+    float topIn = clamp(p.y / 4.0, 0.0, 1.0);
+    sc *= 0.72 + 0.28 * topIn;                              // inner shadow along the top
+    sc *= 1.0 - 0.35 * smoothstep(-2.0, 0.0, dT);           // dark inner edge
+    float dKS = sdKnob(p - vec2(1.5, 3.0));
+    sc *= 1.0 - 0.38 * (1.0 - smoothstep(-3.0, 5.0, dKS));  // the knob's shadow on the room
+    float a = smoothstep(aa, -aa, dT);
+    col = mix(col, sc, a);
+  }
+
+  // Capsule knob of amber aviator glass, magnifying a fully lit render.
+  float dK = sdKnob(p);
+  if (dK < aa) {
+    vec2 q = (p - uKnob) / uKnobHalf;
+    float e = -dK;
+    float rimT = 1.0 - smoothstep(0.0, 5.0, e);
+    vec2 n = gradK(p);
+    vec2 base = uKnob + vec2(0.0, LOW) + (p - uKnob) * MAG;
+    vec2 bend = -n * rimT * rimT * 2.6;
+    vec2 split = n * rimT * rimT * 1.6;
+    vec3 g;
+    g.r = fetch(uFull, base + bend + split).r;
+    g.g = fetch(uFull, base + bend).g;
+    g.b = fetch(uFull, base + bend - split).b;
+    g *= 1.0 - 0.32 * smoothstep(0.35, 0.85, rimT);         // darker refraction band
+    vec3 tintTop = vec3(0.36, 0.17, 0.04);
+    vec3 tintBot = vec3(1.0, 0.8, 0.45);
+    vec3 tint = mix(tintTop, tintBot, smoothstep(-1.0, 0.5, q.y));
+    g *= mix(vec3(1.0), tint * 1.18, 0.85);
+    g += vec3(1.0, 0.82, 0.55) * pow(rimT, 3.0) * 0.38;     // Fresnel edge
+    g += vec3(1.0, 0.95, 0.85) * (1.0 - smoothstep(0.0, 1.1, e)) * 0.45;
+    // Light focused at its foot: brightens what sits low in the lens (the car), plus a caustic.
+    float pool = exp(-pow(q.x / 0.75, 2.0) - pow((q.y - 0.62) / 0.28, 2.0));
+    float foot = exp(-pow(q.x / 0.55, 2.0) - pow((q.y - 0.86) / 0.09, 2.0));
+    g *= 1.0 + pool * mix(0.35, 1.3, uNight);
+    g += vec3(1.0, 0.72, 0.32) * foot * 0.5;
+    float streak = exp(-pow((q.x + 0.52 + q.y * 0.12) / 0.11, 2.0)) * smoothstep(-0.92, -0.62, q.y) * smoothstep(0.05, -0.35, q.y);
+    g += vec3(1.0) * streak * 0.55;
+    float dot_ = exp(-dot(q - vec2(0.5, 0.64), q - vec2(0.5, 0.64)) / 0.004);
+    g += vec3(1.0) * dot_ * 0.85;
+    float a = smoothstep(aa, -aa, dK);
+    col = mix(col, g, a);
+    alpha = mix(alpha, 1.0, a);
+  }
+
+  outColor = vec4(col * alpha, alpha);
+}`;
+
+function createGlass(canvas) {
+  const gl = canvas.getContext('webgl2', { premultipliedAlpha: true, antialias: false, alpha: true });
+  if (!gl) return null;
+  const compile = (type, src) => {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+    return sh;
+  };
+  const prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, GLASS_VS));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, GLASS_FS));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, 'aPos');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+  const makeTex = (unit) => {
+    const t = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    return t;
+  };
+  const texRail = makeTex(0);
+  const texFull = makeTex(1);
+  const U = {};
+  for (const name of ['uRail', 'uFull', 'uRes', 'uScale', 'uOrigin', 'uKnob', 'uKnobHalf', 'uNight']) U[name] = gl.getUniformLocation(prog, name);
+  gl.uniform1i(U.uRail, 0);
+  gl.uniform1i(U.uFull, 1);
+
+  const view = { scale: 1, origin: [0, 0], dpr: 1 };
+
+  function resize(cssWidth) {
+    const dpr = window.devicePixelRatio || 1;
+    const cols = W + MARGIN.x * 2;
+    const rows = H + MARGIN.top + MARGIN.bottom;
+    const scale = Math.max(1, Math.floor((cssWidth * dpr) / cols));
+    canvas.width = cols * scale;
+    canvas.height = rows * scale;
+    canvas.style.width = `${canvas.width / dpr}px`;
+    canvas.style.height = `${canvas.height / dpr}px`;
+    view.scale = scale;
+    view.dpr = dpr;
+    view.origin = [MARGIN.x * scale, MARGIN.top * scale];
+    gl.viewport(0, 0, canvas.width, canvas.height);
+  }
+
+  function draw(rail, full, knob, night) {
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, texRail);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, rail);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, texFull);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, full);
+    gl.uniform2f(U.uRes, canvas.width, canvas.height);
+    gl.uniform1f(U.uScale, view.scale);
+    gl.uniform2f(U.uOrigin, view.origin[0], view.origin[1]);
+    gl.uniform2f(U.uKnob, knob.x, H / 2);
+    gl.uniform2f(U.uKnobHalf, knob.hw, knob.hh);
+    gl.uniform1f(U.uNight, night);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  // CSS pixel offset inside the canvas → scene pixel.
+  function toScene(cssX, cssY) {
+    return { x: (cssX * view.dpr - view.origin[0]) / view.scale, y: (cssY * view.dpr - view.origin[1]) / view.scale };
+  }
+
+  return { gl, resize, draw, toScene, view };
+}
+
+// Knob half-size: stretches horizontally with speed, squashing vertically to keep its volume.
+function knobShape(k) {
+  const s = 1 + k.stretch + k.wob.x;
+  return { x: k.x, hw: (KNOB_W / 2) * s, hh: KNOB_H / 2 / s };
+}
+
+// Same rounded-box test as the shader's sdKnob, with a 1 px grace.
+function insideKnob(k, x, y) {
+  const sh = knobShape(k);
+  const r = Math.min(sh.hw, sh.hh);
+  const qx = Math.max(0, Math.abs(x - sh.x) - (sh.hw - r));
+  const qy = Math.max(0, Math.abs(y - H / 2) - (sh.hh - r));
+  return Math.hypot(qx, qy) <= r + 1;
+}
+
+// ---- audio/engine.js
+// Web Audio graph and helpers. Everything is synthesised live; no samples.
+// sfx bus ─┐
+// music ─ duck ─┼─ compressor ─ master ─ out      (music ≈ 5 dB under the effects)
+// reverb / dotted-eighth echo sends ─┘
+const BPM = 100;
+const STEP_SEC = 60 / BPM / 4; // sixteenth
+const MUSIC_LEVEL = 0.4; // measured: keeps the music ≈5 dB under the effects (scripts/audio-check.mjs)
+
+const panOf = (x) => clamp((x / W) * 2 - 1, -1, 1) * 0.85;
+const midiHz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+
+function makeNoise(ctx, seconds) {
+  const b = ctx.createBuffer(1, Math.floor(ctx.sampleRate * seconds), ctx.sampleRate);
+  const d = b.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  return b;
+}
+
+function makeImpulse(ctx, seconds, decay, bright = 1) {
+  const len = Math.floor(ctx.sampleRate * seconds);
+  const b = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = b.getChannelData(ch);
+    let lp = 0;
+    for (let i = 0; i < len; i++) {
+      const n = Math.random() * 2 - 1;
+      lp += (n - lp) * bright;
+      d[i] = lp * Math.pow(1 - i / len, decay);
+    }
+  }
+  return b;
+}
+
+function buildGraph(ctx) {
+  const A = { ctx };
+  A.out = ctx.createGain();
+  A.out.connect(ctx.destination);
+  A.comp = ctx.createDynamicsCompressor();
+  A.comp.threshold.value = -14;
+  A.comp.knee.value = 10;
+  A.comp.ratio.value = 4;
+  A.comp.attack.value = 0.004;
+  A.comp.release.value = 0.22;
+  A.comp.connect(A.out);
+
+  A.sfx = ctx.createGain();
+  A.sfx.connect(A.comp);
+  A.duck = ctx.createGain();
+  A.duck.connect(A.comp);
+  A.music = ctx.createGain();
+  A.music.gain.value = MUSIC_LEVEL;
+  A.music.connect(A.duck);
+
+  A.reverb = ctx.createConvolver();
+  A.reverb.buffer = makeImpulse(ctx, 2.4, 3.2, 0.5);
+  A.revOut = ctx.createGain();
+  A.revOut.gain.value = 0.32;
+  A.reverb.connect(A.revOut);
+  A.revOut.connect(A.comp);
+  A.revSend = ctx.createGain();
+  A.revSend.connect(A.reverb);
+
+  // Dotted-eighth echo (0.45 s at 100 BPM) with a darkening feedback loop.
+  A.echo = ctx.createDelay(1.5);
+  A.echo.delayTime.value = STEP_SEC * 3;
+  const fb = ctx.createGain();
+  fb.gain.value = 0.34;
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 3200;
+  A.echo.connect(lp);
+  lp.connect(fb);
+  fb.connect(A.echo);
+  A.echoOut = ctx.createGain();
+  A.echoOut.gain.value = 0.3;
+  lp.connect(A.echoOut);
+  A.echoOut.connect(A.comp);
+  A.echoSend = ctx.createGain();
+  A.echoSend.connect(A.echo);
+
+  A.noise = makeNoise(ctx, 2);
+  return A;
+}
+
+// Output strip for one sound: panner → bus, plus optional reverb/echo sends.
+function strip(A, { x = W / 2, pan = null, bus = A.sfx, rev = 0, echo = 0, t = A.ctx.currentTime, dur = 2 } = {}) {
+  const ctx = A.ctx;
+  const g = ctx.createGain();
+  const p = ctx.createStereoPanner();
+  p.pan.value = pan === null ? panOf(x) : pan;
+  g.connect(p);
+  p.connect(bus);
+  if (rev > 0) {
+    const s = ctx.createGain();
+    s.gain.value = rev;
+    p.connect(s);
+    s.connect(A.revSend);
+  }
+  if (echo > 0) {
+    const s = ctx.createGain();
+    s.gain.value = echo;
+    p.connect(s);
+    s.connect(A.echoSend);
+  }
+  // Let the graph collect the strip once its sound has ended.
+  setTimeout(() => g.disconnect(), (t - ctx.currentTime + dur + 0.5) * 1000);
+  return g;
+}
+
+// One enveloped oscillator with an optional pitch glide and filter.
+function tone(A, dest, { type = 'sine', f0, f1 = null, glide = null, t, a = 0.005, hold = 0, d = 0.2, peak = 0.3, detune = 0, filter = null }) {
+  const ctx = A.ctx;
+  const o = ctx.createOscillator();
+  o.type = type;
+  o.frequency.setValueAtTime(f0, t);
+  if (f1 !== null) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + (glide || a + hold + d));
+  o.detune.value = detune;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(peak, t + a);
+  if (hold > 0) g.gain.setValueAtTime(peak, t + a + hold);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + a + hold + d);
+  let node = o;
+  if (filter) {
+    const f = ctx.createBiquadFilter();
+    f.type = filter.type || 'lowpass';
+    f.frequency.setValueAtTime(filter.f, t);
+    if (filter.f1) f.frequency.exponentialRampToValueAtTime(filter.f1, t + a + hold + d);
+    f.Q.value = filter.q || 0.7;
+    o.connect(f);
+    node = f;
+  }
+  node.connect(g);
+  g.connect(dest);
+  o.start(t);
+  o.stop(t + a + hold + d + 0.05);
+  return o;
+}
+
+// Enveloped filtered noise burst.
+function noiseHit(A, dest, { t, a = 0.002, hold = 0, d = 0.15, peak = 0.3, type = 'bandpass', f = 2000, f1 = null, q = 1, rate = 1, cut = false }) {
+  const ctx = A.ctx;
+  const src = ctx.createBufferSource();
+  src.buffer = A.noise;
+  src.playbackRate.value = rate;
+  const fl = ctx.createBiquadFilter();
+  fl.type = type;
+  fl.frequency.setValueAtTime(f, t);
+  if (f1) fl.frequency.exponentialRampToValueAtTime(f1, t + a + hold + d);
+  fl.Q.value = q;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(peak, t + a);
+  if (hold > 0) g.gain.setValueAtTime(peak, t + a + hold);
+  if (cut) g.gain.linearRampToValueAtTime(0, t + a + hold + 0.01);
+  else g.gain.exponentialRampToValueAtTime(0.0001, t + a + hold + d);
+  src.connect(fl);
+  fl.connect(g);
+  g.connect(dest);
+  const off = Math.random() * 1.5;
+  src.start(t, off);
+  src.stop(t + a + hold + d + 0.05);
+  return src;
+}
+
+// A looping noise source for continuous textures.
+function noiseLoop(A, rate = 1) {
+  const src = A.ctx.createBufferSource();
+  src.buffer = A.noise;
+  src.loop = true;
+  src.playbackRate.value = rate;
+  src.start();
+  return src;
+}
+
+const setSmooth = (param, value, ctx, tc = 0.05) => param.setTargetAtTime(value, ctx.currentTime, tc);
+
+function createAudio(S) {
+  let A = null;
+  const api = { enabled: true, unlock, setEnabled, update, graph: () => A };
+
+  S.bus.on('sfx', (e) => {
+    if (!A || !api.enabled || A.ctx.state !== 'running') return;
+    playSfx(A, S, e);
+  });
+
+  function unlock() {
+    if (A) {
+      if (A.ctx.state === 'suspended') A.ctx.resume();
+      return;
+    }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC({ latencyHint: 'interactive' });
+    A = buildGraph(ctx);
+    A.out.gain.value = api.enabled ? 1 : 0;
+    startMusic(A, S);
+    startAmbience(A);
+    startLoops(A);
+    S.beatClock = () => musicBeat(A);
+    if (ctx.state === 'suspended') ctx.resume();
+  }
+
+  function setEnabled(on) {
+    api.enabled = on;
+    if (A) setSmooth(A.out.gain, on ? 1 : 0, A.ctx, 0.04);
+  }
+
+  function update() {
+    if (!A || A.ctx.state !== 'running') return;
+    scheduleMusic(A, S);
+    updateMusicMix(A, S);
+    updateAmbience(A, S);
+    updateLoops(A, S);
+  }
+
+  return api;
+}
+
+// ---- audio/music.js
+// An original four-bar eighties synth-pop loop in A minor over Am · F · C · G at 100 BPM.
+// Layers fade in with the knob: pad + arp → drums + bass → lead → bells, toms, crash.
+// During a chase or the hold-up the bass doubles to sixteenths and chord stabs push it along.
+const CHORDS = [
+  { root: 45, notes: [57, 60, 64] }, // Am
+  { root: 41, notes: [57, 60, 65] }, // F
+  { root: 48, notes: [55, 60, 64] }, // C
+  { root: 43, notes: [55, 59, 62] }, // G
+];
+// [step, midi, length in steps]
+const LEAD = [
+  [0, 76, 3], [3, 74, 1], [4, 72, 2], [6, 76, 2], [8, 81, 4], [12, 79, 2], [14, 76, 2],
+  [16, 77, 3], [19, 76, 1], [20, 72, 4], [24, 69, 4], [28, 72, 2], [30, 74, 2],
+  [32, 76, 3], [35, 79, 1], [36, 76, 2], [38, 72, 2], [40, 79, 6], [46, 76, 2],
+  [48, 74, 3], [51, 76, 1], [52, 74, 2], [54, 71, 2], [56, 67, 4], [60, 71, 2], [62, 74, 2],
+];
+const ARP = [0, 1, 2, 3, 2, 1, 0, 2];
+const STABS = new Set([0, 3, 6, 10, 12]);
+const LAYER_RANGES = [
+  [0.1, 0.22], // 2: pad + arp
+  [0.3, 0.42], // 3: drums + bass
+  [0.5, 0.6], // 4: lead
+  [0.82, 0.9], // 5: bells, toms, crash
+];
+
+function startMusic(A, S) {
+  const ctx = A.ctx;
+  A.layers = LAYER_RANGES.map(() => {
+    const g = ctx.createGain();
+    g.gain.value = 0;
+    g.connect(A.music);
+    return g;
+  });
+  A.chase = ctx.createGain();
+  A.chase.gain.value = 0;
+  A.chase.connect(A.music);
+
+  // Gated reverb for the snare: its own short room, cut hard after each hit.
+  A.snareRoom = ctx.createConvolver();
+  A.snareRoom.buffer = makeImpulse(ctx, 0.9, 1.4, 0.8);
+  A.snareGate = ctx.createGain();
+  A.snareGate.gain.value = 0;
+  A.snareRoom.connect(A.snareGate);
+  A.snareGate.connect(A.layers[1]);
+
+  A.t0 = ctx.currentTime + 0.12;
+  A.nextStep = 0;
+  A.lastLeadHz = midiHz(76);
+  A.sched = setInterval(() => scheduleMusic(A, S), 25);
+}
+
+function musicBeat(A) {
+  return Math.max(0, (A.ctx.currentTime - A.t0) / (STEP_SEC * 4));
+}
+
+function scheduleMusic(A, S) {
+  const ahead = A.ctx.currentTime + 0.14;
+  for (;;) {
+    const t = A.t0 + A.nextStep * STEP_SEC;
+    if (t > ahead) break;
+    if (t > A.ctx.currentTime - 0.02) playStep(A, S, A.nextStep % 64, t);
+    A.nextStep++;
+  }
+}
+
+function updateMusicMix(A, S) {
+  for (const [i, [a, b]] of LAYER_RANGES.entries()) setSmooth(A.layers[i].gain, smooth(a, b, S.t), A.ctx, 0.25);
+  const chasing = S.police.state === 'chase' || holdupBusy(S.holdup);
+  A.chasing = chasing;
+  setSmooth(A.chase.gain, chasing ? 1 : 0, A.ctx, 0.3);
+}
+
+function playStep(A, S, step, t) {
+  const bar = Math.floor(step / 16);
+  const s = step % 16;
+  const ch = CHORDS[bar];
+  const [L2, L3, L4, L5] = A.layers;
+
+  if (s === 0) pad(A, L2, ch, t);
+  arp(A, L2, ch, step, t);
+
+  if (s === 0 || s === 8 || s === 10) kick(A, L3, t);
+  if (s === 4 || s === 12) snare(A, L3, t);
+  if (s % 2 === 0) noiseHit(A, L3, { t, d: s % 4 === 2 ? 0.06 : 0.035, peak: s % 4 === 2 ? 0.07 : 0.045, type: 'highpass', f: 8000, q: 0.5 });
+  if (s % 2 === 0 || A.chasing) bass(A, A.chasing && s % 2 === 1 ? A.chase : L3, ch, step, t);
+  if (A.chasing && STABS.has(s)) stab(A, A.chase, ch, t);
+
+  for (const [ls, note, len] of LEAD) if (ls === step) lead(A, L4, note, len, t);
+
+  if (s === 4 || s === 12) bell(A, L5, ch.notes[(bar + (s === 12 ? 1 : 0)) % 3] + 24, t);
+  if (step === 0) crash(A, L5, t);
+  if (bar === 3 && s >= 12) tom(A, L5, 210 - (s - 12) * 34, t);
+}
+
+function pad(A, dest, ch, t) {
+  const ctx = A.ctx;
+  const len = STEP_SEC * 16;
+  const g = ctx.createGain();
+  const f = ctx.createBiquadFilter();
+  f.type = 'lowpass';
+  f.frequency.value = 1500;
+  f.Q.value = 0.8;
+  f.connect(g);
+  const out = strip(A, { pan: 0, bus: dest, rev: 0.35, t, dur: len });
+  g.connect(out);
+  // Pumping: the pad ducks on every beat and swells back.
+  const peak = 0.05;
+  g.gain.setValueAtTime(0.0001, t);
+  for (let b = 0; b < 4; b++) {
+    const tb = t + b * STEP_SEC * 4;
+    g.gain.setValueAtTime(peak * 0.25, tb);
+    g.gain.linearRampToValueAtTime(peak, tb + 0.3);
+  }
+  g.gain.setValueAtTime(peak, t + len - 0.05);
+  g.gain.linearRampToValueAtTime(0.0001, t + len + 0.05);
+  for (const n of ch.notes)
+    for (const det of [-9, 9]) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = midiHz(n);
+      o.detune.value = det;
+      o.connect(f);
+      o.start(t);
+      o.stop(t + len + 0.1);
+    }
+}
+
+function arp(A, dest, ch, step, t) {
+  const pool = [...ch.notes, ch.notes[0] + 12];
+  const n = pool[ARP[step % ARP.length]] + 12;
+  const out = strip(A, { pan: (step % 2 ? 0.3 : -0.3), bus: dest, echo: 0.5, rev: 0.15, t, dur: 0.3 });
+  const cutoff = 900 + 700 * (0.5 + 0.5 * Math.sin(step * 0.39));
+  tone(A, out, { type: 'square', f0: midiHz(n), t, a: 0.004, d: 0.13, peak: 0.032, filter: { f: cutoff, q: 3 } });
+}
+
+function kick(A, dest, t) {
+  tone(A, dest, { type: 'sine', f0: 150, f1: 42, glide: 0.11, t, a: 0.002, d: 0.2, peak: 0.42 });
+  noiseHit(A, dest, { t, d: 0.015, peak: 0.08, type: 'lowpass', f: 3000 });
+}
+
+function snare(A, dest, t) {
+  const out = strip(A, { pan: 0, bus: dest, t, dur: 0.4 });
+  noiseHit(A, out, { t, d: 0.16, peak: 0.16, type: 'bandpass', f: 1900, q: 0.6 });
+  tone(A, out, { type: 'triangle', f0: 200, f1: 150, t, d: 0.09, peak: 0.12 });
+  // Feed the room and slam the gate shut after a fifth of a second.
+  const send = A.ctx.createGain();
+  send.gain.value = 0.9;
+  noiseHit(A, send, { t, d: 0.12, peak: 0.35, type: 'bandpass', f: 2200, q: 0.5 });
+  send.connect(A.snareRoom);
+  setTimeout(() => send.disconnect(), (t - A.ctx.currentTime + 1) * 1000);
+  const gt = A.snareGate.gain;
+  gt.cancelScheduledValues(t);
+  gt.setValueAtTime(0.55, t);
+  gt.setValueAtTime(0.55, t + 0.2);
+  gt.linearRampToValueAtTime(0, t + 0.23);
+}
+
+function bass(A, dest, ch, step, t) {
+  const sixteenths = A.chasing;
+  const idx = sixteenths ? step : Math.floor(step / 2);
+  const n = ch.root - 12 + (idx % 2 === 1 ? 12 : 0);
+  const d = sixteenths ? 0.11 : 0.22;
+  tone(A, dest, { type: 'sawtooth', f0: midiHz(n), t, a: 0.004, d, peak: 0.11, filter: { f: 1100, f1: 260, q: 4 } });
+}
+
+function stab(A, dest, ch, t) {
+  const out = strip(A, { pan: 0, bus: dest, rev: 0.2, t, dur: 0.3 });
+  for (const n of ch.notes) for (const det of [-7, 7]) tone(A, out, { type: 'sawtooth', f0: midiHz(n + 12), detune: det, t, a: 0.003, d: 0.12, peak: 0.022, filter: { f: 2600, f1: 900, q: 1 } });
+}
+
+function lead(A, dest, note, len, t) {
+  const ctx = A.ctx;
+  const dur = len * STEP_SEC;
+  const hz = midiHz(note);
+  const out = strip(A, { pan: 0.1, bus: dest, echo: 0.55, rev: 0.3, t, dur: dur + 0.4 });
+  const f = ctx.createBiquadFilter();
+  f.type = 'lowpass';
+  f.frequency.value = 2600;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.06, t + 0.02);
+  g.gain.setValueAtTime(0.06, t + dur - 0.04);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.12);
+  f.connect(g);
+  g.connect(out);
+  // Late vibrato: an LFO whose depth only opens after the note settles.
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = 5.6;
+  const depth = ctx.createGain();
+  depth.gain.setValueAtTime(0, t);
+  depth.gain.setValueAtTime(0, t + Math.min(0.25, dur * 0.5));
+  depth.gain.linearRampToValueAtTime(dur > 0.4 ? 26 : 8, t + dur);
+  lfo.connect(depth);
+  lfo.start(t);
+  lfo.stop(t + dur + 0.2);
+  for (const det of [-11, 11]) {
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.detune.value = det;
+    // Glide from the previous note.
+    o.frequency.setValueAtTime(A.lastLeadHz, t);
+    o.frequency.setTargetAtTime(hz, t, 0.025);
+    depth.connect(o.detune);
+    o.connect(f);
+    o.start(t);
+    o.stop(t + dur + 0.2);
+  }
+  A.lastLeadHz = hz;
+}
+
+function bell(A, dest, note, t) {
+  const ctx = A.ctx;
+  const out = strip(A, { pan: -0.25, bus: dest, rev: 0.5, echo: 0.3, t, dur: 2 });
+  const car = ctx.createOscillator();
+  const mod = ctx.createOscillator();
+  const idx = ctx.createGain();
+  const g = ctx.createGain();
+  const hz = midiHz(note);
+  car.frequency.value = hz;
+  mod.frequency.value = hz * 3.5;
+  idx.gain.setValueAtTime(hz * 2.2, t);
+  idx.gain.exponentialRampToValueAtTime(hz * 0.05, t + 1.2);
+  mod.connect(idx);
+  idx.connect(car.frequency);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.05, t + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.6);
+  car.connect(g);
+  g.connect(out);
+  car.start(t);
+  mod.start(t);
+  car.stop(t + 1.7);
+  mod.stop(t + 1.7);
+}
+
+function tom(A, dest, hz, t) {
+  const out = strip(A, { pan: 0.4 - (hz - 100) / 400, bus: dest, rev: 0.4, t, dur: 0.6 });
+  tone(A, out, { type: 'sine', f0: hz, f1: hz * 0.55, glide: 0.2, t, a: 0.002, d: 0.28, peak: 0.22 });
+  noiseHit(A, out, { t, d: 0.03, peak: 0.05, type: 'bandpass', f: 1200 });
+}
+
+function crash(A, dest, t) {
+  const out = strip(A, { pan: 0.3, bus: dest, rev: 0.4, t, dur: 2.5 });
+  noiseHit(A, out, { t, a: 0.003, d: 1.9, peak: 0.09, type: 'highpass', f: 4500, q: 0.4 });
+  noiseHit(A, out, { t, a: 0.002, d: 0.9, peak: 0.05, type: 'bandpass', f: 7400, q: 6 });
+}
+
+// ---- audio/sfx.js
+// Sound effects. One-shots are triggered by world events; loops (engine, siren,
+// helicopter, skates, alarm) follow the world state every frame.
+
+function horn(A, out, t, f, dur, peak = 0.12) {
+  for (const [hz, type] of [[f, 'sawtooth'], [f * 1.26, 'square']]) tone(A, out, { type, f0: hz, t, a: 0.01, hold: dur, d: 0.06, peak, filter: { f: 1800, q: 1.5 } });
+}
+
+function bark(A, out, t, k = 1) {
+  tone(A, out, { type: 'sawtooth', f0: 520 * k, f1: 330 * k, glide: 0.09, t, a: 0.004, d: 0.12, peak: 0.2, filter: { type: 'bandpass', f: 1100, q: 2.5 } });
+  noiseHit(A, out, { t, d: 0.06, peak: 0.08, type: 'bandpass', f: 1400, q: 1.5 });
+}
+
+function yip(A, out, t) {
+  tone(A, out, { type: 'triangle', f0: 900, f1: 1500, glide: 0.06, t, a: 0.003, d: 0.08, peak: 0.16, filter: { type: 'bandpass', f: 1500, q: 2 } });
+}
+
+function meow(A, out, t) {
+  const ctx = A.ctx;
+  const o = ctx.createOscillator();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(480, t);
+  o.frequency.linearRampToValueAtTime(820, t + 0.18);
+  o.frequency.linearRampToValueAtTime(430, t + 0.5);
+  const f1 = ctx.createBiquadFilter();
+  f1.type = 'bandpass';
+  f1.Q.value = 6;
+  f1.frequency.setValueAtTime(700, t);
+  f1.frequency.linearRampToValueAtTime(1300, t + 0.2);
+  f1.frequency.linearRampToValueAtTime(800, t + 0.5);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.28, t + 0.04);
+  g.gain.setValueAtTime(0.28, t + 0.35);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+  o.connect(f1);
+  f1.connect(g);
+  g.connect(out);
+  o.start(t);
+  o.stop(t + 0.6);
+}
+
+// Voice-like formant blip through a "wall" (muffled).
+function voice(A, out, t, f0, f1, dur, formant, peak) {
+  const ctx = A.ctx;
+  const o = ctx.createOscillator();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(f0, t);
+  o.frequency.linearRampToValueAtTime(f1, t + dur);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(peak, t + 0.03);
+  g.gain.setValueAtTime(peak, t + dur * 0.7);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  let node = o;
+  for (const fr of formant) {
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = fr;
+    bp.Q.value = 4;
+    node.connect(bp);
+    node = bp;
+  }
+  node.connect(g);
+  g.connect(out);
+  o.start(t);
+  o.stop(t + dur + 0.05);
+}
+
+function knock(A, out, t, glass) {
+  noiseHit(A, out, { t, d: 0.03, peak: 0.25, type: 'bandpass', f: glass ? 3200 : 1600, q: 2 });
+  tone(A, out, { type: 'sine', f0: glass ? 1150 : 140, f1: glass ? 980 : 80, t, a: 0.002, d: glass ? 0.07 : 0.14, peak: glass ? 0.12 : 0.35 });
+}
+
+function bellTone(A, out, t, hz, dur, peak) {
+  for (const [ratio, k] of [[1, 1], [2.76, 0.4], [5.4, 0.2]]) tone(A, out, { type: 'sine', f0: hz * ratio, t, a: 0.002, d: dur / ratio, peak: peak * k });
+}
+
+function duckMusic(A, t, depth = 0.25) {
+  const g = A.duck.gain;
+  g.cancelScheduledValues(t);
+  g.setValueAtTime(g.value, t);
+  g.linearRampToValueAtTime(depth, t + 0.01);
+  g.setTargetAtTime(1, t + 0.08, 0.25);
+}
+
+function playSfx(A, S, e) {
+  const ctx = A.ctx;
+  const t = ctx.currentTime + (e.delay || 0) + 0.005;
+  const x = e.x === undefined ? W / 2 : e.x;
+  const out = (o = {}) => strip(A, { x, t, ...o });
+  switch (e.name) {
+    case 'hinge': {
+      // Aviator hinge clicks when the knob is grabbed.
+      const o = out({ dur: 0.2 });
+      noiseHit(A, o, { t, d: 0.012, peak: 0.25, type: 'highpass', f: 4200, q: 1 });
+      noiseHit(A, o, { t: t + 0.045, d: 0.01, peak: 0.18, type: 'bandpass', f: 2300, q: 3 });
+      tone(A, o, { type: 'square', f0: 3100, t: t + 0.045, d: 0.012, peak: 0.03 });
+      break;
+    }
+    case 'honk':
+      horn(A, out({ rev: 0.15, dur: 0.5 }), t, 410, 0.22);
+      break;
+    case 'longHonk':
+      horn(A, out({ rev: 0.15, dur: 1.4 }), t, 410, 0.95, 0.11);
+      break;
+    case 'hop': {
+      const o = out({ dur: 1.4, rev: 0.1 });
+      noiseHit(A, o, { t, a: 0.01, d: 0.45, peak: 0.22, type: 'highpass', f: 3000, f1: 6000 }); // air hiss
+      tone(A, o, { type: 'sine', f0: 120, f1: 50, t: t + 0.03, d: 0.18, peak: 0.45 }); // clunk
+      noiseHit(A, o, { t: t + 0.03, d: 0.05, peak: 0.2, type: 'lowpass', f: 900 });
+      break;
+    }
+    case 'squeak': {
+      const o = out({ dur: 0.3 });
+      tone(A, o, { type: 'triangle', f0: 1700, f1: 2500, glide: 0.08, t, a: 0.01, d: 0.12, peak: 0.07 * (0.4 + (e.k || 1)) });
+      break;
+    }
+    case 'squeal': {
+      const o = out({ dur: 0.9, rev: 0.12 });
+      const k = e.k || 1;
+      noiseHit(A, o, { t, a: 0.02, hold: 0.25, d: 0.35, peak: 0.16 * k, type: 'bandpass', f: 2600, q: 9 });
+      tone(A, o, { type: 'sawtooth', f0: 1850, f1: 1500, glide: 0.6, t, a: 0.02, hold: 0.25, d: 0.35, peak: 0.04 * k, filter: { type: 'bandpass', f: 1800, q: 6 } });
+      break;
+    }
+    case 'neonOn': {
+      // Neon crackling and buzzing on.
+      const o = out({ dur: 1 });
+      for (let i = 0; i < 5; i++) noiseHit(A, o, { t: t + Math.random() * 0.35, d: 0.015, peak: 0.12, type: 'highpass', f: 3500 });
+      tone(A, o, { type: 'sawtooth', f0: 120, t: t + 0.2, a: 0.02, hold: 0.35, d: 0.25, peak: 0.035, filter: { f: 900 } });
+      break;
+    }
+    case 'lampOn': {
+      const o = out({ dur: 1 });
+      noiseHit(A, o, { t, d: 0.01, peak: 0.18, type: 'highpass', f: 5000 });
+      noiseHit(A, o, { t: t + 0.07, d: 0.008, peak: 0.1, type: 'highpass', f: 5000 });
+      tone(A, o, { type: 'sine', f0: 100, t: t + 0.05, a: 0.1, hold: 0.2, d: 0.4, peak: 0.025 });
+      break;
+    }
+    case 'pass': {
+      // Passing car: panned sweep with a doppler drop.
+      const ctx2 = A.ctx;
+      const g = ctx2.createGain();
+      const p = ctx2.createStereoPanner();
+      p.pan.setValueAtTime(0.85, t);
+      p.pan.linearRampToValueAtTime(-0.85, t + 0.9);
+      g.connect(p);
+      p.connect(A.sfx);
+      const f = e.kind === 'van' ? 85 : 110;
+      tone(A, g, { type: 'sawtooth', f0: f * 1.12, f1: f * 0.86, glide: 0.9, t, a: 0.25, d: 0.65, peak: 0.06, filter: { f: 700 } });
+      noiseHit(A, g, { t, a: 0.3, d: 0.6, peak: 0.1, type: 'bandpass', f: 900, f1: 500, q: 0.8 });
+      setTimeout(() => g.disconnect(), (t - ctx2.currentTime + 1.5) * 1000);
+      break;
+    }
+    case 'bark':
+      bark(A, out({ rev: 0.15, dur: 0.4 }), t);
+      break;
+    case 'yip':
+      yip(A, out({ dur: 0.3 }), t);
+      break;
+    case 'meow':
+      meow(A, out({ rev: 0.1, dur: 0.8 }), t);
+      break;
+    case 'rustle': {
+      const o = out({ dur: 1.2 });
+      for (let i = 0; i < 8; i++) noiseHit(A, o, { t: t + i * 0.1 + Math.random() * 0.05, a: 0.02, d: 0.12, peak: 0.07, type: 'bandpass', f: 3000 + Math.random() * 2500, q: 1.2 });
+      break;
+    }
+    case 'coconut': {
+      // Hollow knock on the pavement.
+      const o = out({ rev: 0.2, dur: 0.4 });
+      const k = e.k || 1;
+      tone(A, o, { type: 'sine', f0: 320, t, a: 0.002, d: 0.12, peak: 0.3 * k });
+      tone(A, o, { type: 'sine', f0: 520, t, a: 0.002, d: 0.06, peak: 0.12 * k });
+      noiseHit(A, o, { t, d: 0.02, peak: 0.1 * k, type: 'bandpass', f: 900, q: 2 });
+      break;
+    }
+    case 'bonk': {
+      const o = out({ rev: 0.15, dur: 1.4 });
+      tone(A, o, { type: 'square', f0: 820, f1: 260, glide: 0.12, t, a: 0.002, d: 0.14, peak: 0.12, filter: { f: 2500 } });
+      knock(A, o, t, false);
+      // boing
+      const ctx2 = A.ctx;
+      const b = ctx2.createOscillator();
+      const lfo = ctx2.createOscillator();
+      const lg = ctx2.createGain();
+      const g = ctx2.createGain();
+      b.type = 'sine';
+      b.frequency.setValueAtTime(180, t + 0.12);
+      b.frequency.exponentialRampToValueAtTime(520, t + 0.7);
+      lfo.frequency.value = 14;
+      lg.gain.setValueAtTime(60, t + 0.12);
+      lg.gain.exponentialRampToValueAtTime(4, t + 0.75);
+      lfo.connect(lg);
+      lg.connect(b.frequency);
+      g.gain.setValueAtTime(0.0001, t + 0.12);
+      g.gain.linearRampToValueAtTime(0.18, t + 0.14);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.8);
+      b.connect(g);
+      g.connect(o);
+      b.start(t + 0.12);
+      lfo.start(t + 0.12);
+      b.stop(t + 0.85);
+      lfo.stop(t + 0.85);
+      tone(A, o, { type: 'triangle', f0: 1300, f1: 1900, glide: 0.07, t: t + 0.25, a: 0.004, d: 0.18, peak: 0.12, filter: { type: 'bandpass', f: 1600, q: 2 } }); // yelp
+      break;
+    }
+    case 'knock3': {
+      const o = out({ rev: 0.2, dur: 1 });
+      for (let i = 0; i < 3; i++) knock(A, o, t + i * 0.18, true);
+      break;
+    }
+    case 'hey':
+      voice(A, out({ rev: 0.2, dur: 0.6 }), t, 230, 290, 0.32, [700, 1100], 0.9);
+      break;
+    case 'chime': {
+      const o = out({ rev: 0.35, dur: 2 });
+      bellTone(A, o, t, 1320, 0.9, 0.09);
+      bellTone(A, o, t + 0.28, 990, 1.1, 0.09);
+      noiseHit(A, o, { t: t + 0.05, a: 0.1, d: 0.5, peak: 0.05, type: 'bandpass', f: 1200, f1: 600, q: 0.8 }); // door slides
+      break;
+    }
+    case 'orderBell':
+      bellTone(A, out({ rev: 0.35, dur: 1.6 }), t, 2100, 1.3, 0.12);
+      break;
+    case 'seamClick':
+      noiseHit(A, out({ dur: 0.1 }), { t, d: 0.008, peak: 0.1, type: 'highpass', f: 3800 });
+      break;
+    case 'slurp': {
+      const o = out({ dur: 1.4 });
+      for (let i = 0; i < 3; i++) noiseHit(A, o, { t: t + i * 0.32, a: 0.03, d: 0.22, peak: 0.12, type: 'bandpass', f: 600, f1: 1800, q: 6 });
+      break;
+    }
+    case 'short': {
+      // Neon shorting out: crackles and a stuttering buzz.
+      const o = out({ rev: 0.1, dur: 1.6 });
+      for (let i = 0; i < 12; i++) noiseHit(A, o, { t: t + Math.random() * 1.2, d: 0.01 + Math.random() * 0.02, peak: 0.16, type: 'highpass', f: 2500 + Math.random() * 3000 });
+      for (let i = 0; i < 7; i++) tone(A, o, { type: 'sawtooth', f0: 120, t: t + i * 0.17 + Math.random() * 0.05, a: 0.003, hold: 0.05 + Math.random() * 0.06, d: 0.02, peak: 0.05, filter: { f: 1400 } });
+      break;
+    }
+    case 'dolphin': {
+      const o = out({ rev: 0.3, dur: 2.2 });
+      noiseHit(A, o, { t, a: 0.005, d: 0.4, peak: 0.25, type: 'lowpass', f: 1600, f1: 400 });
+      for (let i = 0; i < 10; i++) noiseHit(A, o, { t: t + 0.35 + i * 0.035, d: 0.006, peak: 0.12, type: 'bandpass', f: 4200, q: 4 });
+      tone(A, o, { type: 'sine', f0: 2400, f1: 4300, glide: 0.35, t: t + 0.75, a: 0.03, d: 0.4, peak: 0.08 });
+      noiseHit(A, o, { t: t + 1.45, a: 0.005, d: 0.45, peak: 0.22, type: 'lowpass', f: 1400, f1: 350 });
+      break;
+    }
+    case 'whistle': {
+      const ctx2 = A.ctx;
+      const o = out({ rev: 0.3, dur: 1.2 });
+      const w = ctx2.createOscillator();
+      const tr = ctx2.createOscillator();
+      const trg = ctx2.createGain();
+      const g = ctx2.createGain();
+      w.frequency.value = 2900;
+      tr.frequency.value = 28;
+      trg.gain.value = 180;
+      tr.connect(trg);
+      trg.connect(w.frequency);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.09, t + 0.03);
+      g.gain.setValueAtTime(0.09, t + 0.7);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.85);
+      w.connect(g);
+      g.connect(o);
+      w.start(t);
+      tr.start(t);
+      w.stop(t + 0.9);
+      tr.stop(t + 0.9);
+      for (let i = 0; i < 6; i++) noiseHit(A, o, { t: t + 0.2 + i * 0.09, d: 0.05, peak: 0.05, type: 'bandpass', f: 900, q: 1 }); // flag flaps
+      break;
+    }
+    case 'carHonk':
+      horn(A, out({ rev: 0.15, dur: 0.6 }), t, 330 * (e.pitch || 1), 0.28, 0.08);
+      break;
+    case 'bullhorn': {
+      const o = out({ rev: 0.25, dur: 1 });
+      tone(A, o, { type: 'square', f0: 700, f1: 1400, glide: 0.25, t, a: 0.01, hold: 0.25, d: 0.15, peak: 0.07, filter: { type: 'bandpass', f: 1200, q: 2 } });
+      tone(A, o, { type: 'square', f0: 1400, f1: 700, glide: 0.25, t: t + 0.42, a: 0.01, hold: 0.15, d: 0.1, peak: 0.06, filter: { type: 'bandpass', f: 1200, q: 2 } });
+      break;
+    }
+    case 'radio': {
+      // Radio chatter: band-limited syllables between squelch beeps.
+      const o = out({ dur: 1.6 });
+      noiseHit(A, o, { t, d: 0.08, peak: 0.1, type: 'bandpass', f: 2500, q: 1 });
+      for (let i = 0; i < 6; i++) voice(A, o, t + 0.1 + i * 0.14, 180 + Math.random() * 90, 200 + Math.random() * 90, 0.12, [900, 1500], 0.6);
+      tone(A, o, { type: 'sine', f0: 1700, t: t + 1, d: 0.06, peak: 0.05 });
+      break;
+    }
+    case 'squelch': {
+      const o = out({ dur: 0.6 });
+      noiseHit(A, o, { t, a: 0.002, hold: 0.18, d: 0.03, peak: 0.13, type: 'bandpass', f: 2200, q: 0.8, cut: true });
+      tone(A, o, { type: 'sine', f0: 1500, t: t + 0.22, d: 0.07, peak: 0.06 });
+      break;
+    }
+    case 'shootingStar': {
+      const o = out({ rev: 0.5, echo: 0.4, dur: 2 });
+      [76, 81, 84, 88].forEach((m, i) => bellTone(A, o, t + i * 0.09, midiHz(m), 1.2, 0.05));
+      break;
+    }
+    case 'gull':
+      gullCry(A, out({ rev: 0.2, dur: 1.2 }), t);
+      break;
+    case 'drum':
+      knock(A, out({ dur: 0.3 }), t, false);
+      if (e.hard) noiseHit(A, out({ dur: 0.2 }), { t, d: 0.05, peak: 0.12, type: 'bandpass', f: 1200, q: 1 });
+      break;
+    case 'glass': {
+      const o = out({ rev: 0.35, dur: 1.4 });
+      noiseHit(A, o, { t, d: 0.25, peak: 0.35, type: 'highpass', f: 3000 });
+      for (let i = 0; i < 14; i++) tone(A, o, { type: 'sine', f0: 2500 + Math.random() * 4000, t: t + 0.03 + Math.random() * 0.7, a: 0.001, d: 0.12, peak: 0.04 });
+      break;
+    }
+    case 'shot': {
+      // Crack, thump, and echoes off the buildings; the music ducks under it.
+      const o = out({ dur: 0.6 });
+      noiseHit(A, o, { t, a: 0.0005, d: 0.05, peak: 0.6, type: 'highpass', f: 1800 });
+      tone(A, o, { type: 'sine', f0: 140, f1: 45, glide: 0.12, t, a: 0.001, d: 0.16, peak: 0.6 });
+      const away = e.side === 'robber' ? 0.7 : -0.7;
+      for (const [dt, k, f] of [[0.11, 0.22, 1600], [0.24, 0.12, 1100], [0.4, 0.06, 800]]) {
+        const ec = strip(A, { pan: away * (dt > 0.2 ? -1 : 1), t: t + dt, dur: 0.4 });
+        noiseHit(A, ec, { t: t + dt, a: 0.002, d: 0.12, peak: k, type: 'lowpass', f });
+      }
+      duckMusic(A, t);
+      break;
+    }
+    case 'ricochet': {
+      const o = out({ rev: 0.2, dur: 0.6 });
+      tone(A, o, { type: 'sine', f0: 3200, f1: 900, glide: 0.35, t, a: 0.002, d: 0.38, peak: 0.08 });
+      noiseHit(A, o, { t, d: 0.03, peak: 0.12, type: 'highpass', f: 4000 });
+      break;
+    }
+    case 'roar': {
+      const o = out({ rev: 0.15, dur: 2 });
+      const k = e.k || 1;
+      tone(A, o, { type: 'sawtooth', f0: 55, f1: 160, glide: 1.4, t, a: 0.05, hold: 0.6, d: 0.8, peak: 0.16 * k, filter: { f: 600, f1: 1400, q: 2 } });
+      tone(A, o, { type: 'square', f0: 27, f1: 80, glide: 1.4, t, a: 0.05, hold: 0.6, d: 0.8, peak: 0.1 * k, filter: { f: 300 } });
+      break;
+    }
+    case 'policeIn':
+      tone(A, out({ dur: 0.5 }), { type: 'square', f0: 900, f1: 1500, glide: 0.18, t, a: 0.005, d: 0.2, peak: 0.05, filter: { f: 2000 } });
+      break;
+    case 'alarm':
+      A.alarmOn = !!e.on;
+      if (e.x !== undefined) A.alarmX = e.x;
+      break;
+    case 'skates':
+      A.skating = !!e.on;
+      break;
+  }
+}
+
+function gullCry(A, out, t) {
+  for (let i = 0; i < 3; i++) {
+    const t0 = t + i * 0.22;
+    tone(A, out, { type: 'triangle', f0: 1350, f1: 880, glide: 0.18, t: t0, a: 0.01, d: 0.18, peak: 0.07, filter: { type: 'bandpass', f: 1500, q: 3 } });
+  }
+}
+
+// ---- continuous loops
+
+function loopVoice(A, build) {
+  const ctx = A.ctx;
+  const g = ctx.createGain();
+  g.gain.value = 0;
+  const p = ctx.createStereoPanner();
+  g.connect(p);
+  p.connect(A.sfx);
+  build(g);
+  return { g, p };
+}
+
+function startLoops(A) {
+  const ctx = A.ctx;
+  // Engine climbing through its gears.
+  A.engine = loopVoice(A, (g) => {
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 500;
+    f.Q.value = 3;
+    const o1 = ctx.createOscillator();
+    o1.type = 'sawtooth';
+    const o2 = ctx.createOscillator();
+    o2.type = 'square';
+    o1.connect(f);
+    o2.connect(f);
+    f.connect(g);
+    o1.start();
+    o2.start();
+    A.engineOsc = [o1, o2];
+    A.engineFilter = f;
+  });
+  // Siren: wail / yelp, panned to the police car.
+  A.siren = loopVoice(A, (g) => {
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 2200;
+    o.connect(f);
+    f.connect(g);
+    o.start();
+    A.sirenOsc = o;
+  });
+  // Helicopter blade slap: noise gated by a 12 Hz pulse.
+  A.heli = loopVoice(A, (g) => {
+    const n = noiseLoop(A, 0.7);
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 160;
+    f.Q.value = 0.9;
+    const slap = ctx.createGain();
+    slap.gain.value = 0;
+    const lfo = ctx.createOscillator();
+    lfo.type = 'square';
+    lfo.frequency.value = 12;
+    const lg = ctx.createGain();
+    lg.gain.value = 0.5;
+    lfo.connect(lg);
+    lg.connect(slap.gain);
+    const dc = ctx.createConstantSource();
+    dc.offset.value = 0.5;
+    dc.connect(slap.gain);
+    n.connect(f);
+    f.connect(slap);
+    slap.connect(g);
+    lfo.start();
+    dc.start();
+  });
+  // Carhop's wheel rumble.
+  A.skates = loopVoice(A, (g) => {
+    const n = noiseLoop(A, 0.5);
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 320;
+    n.connect(f);
+    f.connect(g);
+  });
+  // Store alarm bell: a trilled ring.
+  A.alarm = loopVoice(A, (g) => {
+    const o = ctx.createOscillator();
+    o.type = 'square';
+    o.frequency.value = 1180;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 2000;
+    f.Q.value = 1.5;
+    const am = ctx.createGain();
+    am.gain.value = 0;
+    const lfo = ctx.createOscillator();
+    lfo.type = 'square';
+    lfo.frequency.value = 19;
+    const lg = ctx.createGain();
+    lg.gain.value = 0.5;
+    const dc = ctx.createConstantSource();
+    dc.offset.value = 0.5;
+    lfo.connect(lg);
+    lg.connect(am.gain);
+    dc.connect(am.gain);
+    o.connect(f);
+    f.connect(am);
+    am.connect(g);
+    o.start();
+    lfo.start();
+    dc.start();
+  });
+}
+
+const GEARS = [0, 22, 42, 64, 90, 120];
+
+function updateLoops(A, S) {
+  const ctx = A.ctx;
+  const c = S.car;
+  const mph = Math.abs(c.v) * PX_TO_MPH;
+  let gear = 0;
+  while (gear < GEARS.length - 1 && mph > GEARS[gear + 1]) gear++;
+  const lo = GEARS[gear];
+  const hi = GEARS[gear + 1] || 140;
+  const rpm = 0.22 + 0.78 * clamp((mph - lo) / (hi - lo), 0, 1);
+  const throttle = clamp(Math.abs(c.a) / 500, 0, 1) * (c.a * c.v >= 0 ? 1 : 0.3);
+  const base = 38 + rpm * 95 + gear * 6;
+  setSmooth(A.engineOsc[0].frequency, base, ctx, 0.04);
+  setSmooth(A.engineOsc[1].frequency, base * 0.5, ctx, 0.04);
+  setSmooth(A.engineFilter.frequency, 300 + rpm * 900 + throttle * 600, ctx, 0.05);
+  setSmooth(A.engine.g.gain, 0.025 + rpm * 0.03 * (mph > 1 ? 1 : 0.4) + throttle * 0.05, ctx, 0.06);
+  setSmooth(A.engine.p.pan, panOf(c.x), ctx, 0.05);
+
+  // Siren follows whichever police car is active.
+  const h = S.holdup;
+  let sirenX = null;
+  if (S.police.state !== 'off') sirenX = S.police.x;
+  else if (holdupSirenOn(h)) sirenX = h.px;
+  if (sirenX !== null) {
+    // Wail for six seconds, then yelp for three.
+    const cyc = S.time % 9;
+    const f = cyc < 6 ? 640 + 560 * (0.5 - 0.5 * Math.cos((cyc / 3) * TAU)) : 700 + 600 * ((cyc / 0.31) % 1);
+    setSmooth(A.sirenOsc.frequency, f, ctx, 0.02);
+    const inView = sirenX > -20 && sirenX < W + 20 ? 1 : 0.4;
+    setSmooth(A.siren.g.gain, 0.045 * inView, ctx, 0.1);
+    setSmooth(A.siren.p.pan, panOf(sirenX), ctx, 0.08);
+  } else setSmooth(A.siren.g.gain, 0, ctx, 0.3);
+
+  const Hh = S.heli;
+  setSmooth(A.heli.g.gain, Hh.state === 'in' ? 0.13 : 0, ctx, 0.5);
+  setSmooth(A.heli.p.pan, panOf(Hh.x), ctx, 0.2);
+
+  setSmooth(A.skates.g.gain, A.skating && S.carhop.state !== 'idle' ? 0.07 : 0, ctx, 0.08);
+  setSmooth(A.skates.p.pan, panOf(S.carhop.x), ctx, 0.08);
+
+  const ring = A.alarmOn && h.alarm > 0;
+  setSmooth(A.alarm.g.gain, ring ? 0.04 : 0, ctx, 0.05);
+  setSmooth(A.alarm.p.pan, panOf(A.alarmX || STORE.x), ctx, 0.1);
+}
+
+// ---- audio/ambience.js
+// Layer 1, the coast: surf swells, gulls by day, a city hum at night.
+
+function startAmbience(A) {
+  const ctx = A.ctx;
+  // Surf: filtered noise swelling on a slow LFO, from the beach side.
+  const surf = noiseLoop(A, 0.6);
+  const sf = ctx.createBiquadFilter();
+  sf.type = 'lowpass';
+  sf.frequency.value = 700;
+  A.surfGain = ctx.createGain();
+  A.surfGain.gain.value = 0.05;
+  const swell = ctx.createOscillator();
+  swell.frequency.value = 0.13;
+  const swellDepth = ctx.createGain();
+  swellDepth.gain.value = 0.045;
+  swell.connect(swellDepth);
+  swellDepth.connect(A.surfGain.gain);
+  swell.start();
+  const sp = ctx.createStereoPanner();
+  sp.pan.value = -0.6;
+  A.surfLevel = ctx.createGain();
+  surf.connect(sf);
+  sf.connect(A.surfGain);
+  A.surfGain.connect(sp);
+  sp.connect(A.surfLevel);
+  A.surfLevel.connect(A.music);
+
+  // City hum: low rumble plus a faint mains tone, rising with the night.
+  const hum = noiseLoop(A, 0.3);
+  const hf = ctx.createBiquadFilter();
+  hf.type = 'lowpass';
+  hf.frequency.value = 180;
+  A.humGain = ctx.createGain();
+  A.humGain.gain.value = 0;
+  hum.connect(hf);
+  hf.connect(A.humGain);
+  const mains = ctx.createOscillator();
+  mains.frequency.value = 55;
+  const mg = ctx.createGain();
+  mg.gain.value = 0.12;
+  mains.connect(mg);
+  mg.connect(A.humGain);
+  mains.start();
+  const hp = ctx.createStereoPanner();
+  hp.pan.value = 0.4;
+  A.humGain.connect(hp);
+  hp.connect(A.music);
+
+  A.nextGull = ctx.currentTime + 2;
+}
+
+function updateAmbience(A, S) {
+  const ctx = A.ctx;
+  const day = 1 - smooth(0.35, 0.5, S.t);
+  setSmooth(A.surfLevel.gain, lerp(1, 0.6, S.night), ctx, 0.4);
+  setSmooth(A.humGain.gain, S.night * 0.22, ctx, 0.5);
+  if (day > 0.05 && ctx.currentTime > A.nextGull) {
+    A.nextGull = ctx.currentTime + 3 + Math.random() * 5;
+    const out = strip(A, { pan: -0.4 - Math.random() * 0.5, bus: A.music, rev: 0.3, dur: 1.2 });
+    const g = ctx.createGain();
+    g.gain.value = day * 0.7;
+    g.connect(out);
+    gullCry(A, g, ctx.currentTime + 0.02);
+  }
+}
+
+// ---- ui/input.js
+// Pointer and keyboard. Touches on the knob always mean the car.
+const KEY_STEP = (KNOB_MAX - KNOB_MIN) / 20;
+const TAP_SLOP = 3; // scene px
+
+function insideTrack(x, y) {
+  const r = H / 2;
+  const qx = Math.max(0, Math.abs(x - W / 2) - (W / 2 - r));
+  const qy = Math.max(0, Math.abs(y - H / 2) - (H / 2 - r));
+  return Math.hypot(qx, qy) <= r;
+}
+
+function sceneIdAt(F, x, y) {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  if (ix < 0 || iy < 0 || ix >= W || iy >= H || !insideTrack(x, y)) return ID.NONE;
+  return F.id[iy * W + ix];
+}
+
+function createInput(canvas, glass, S, F, audio) {
+  let drag = null;
+
+  const scenePoint = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return glass.toScene(e.clientX - r.left, e.clientY - r.top);
+  };
+
+  const setTarget = (x) => {
+    S.knob.target = clamp(x, KNOB_MIN, KNOB_MAX);
+  };
+
+  canvas.addEventListener('pointerdown', (e) => {
+    audio.unlock();
+    const p = scenePoint(e);
+    const onKnob = insideKnob(S.knob, p.x, p.y);
+    if (!onKnob && !insideTrack(p.x, p.y)) return;
+    canvas.setPointerCapture(e.pointerId);
+    canvas.focus({ preventScroll: true }); // preventDefault below would otherwise block focus
+    drag = { id: e.pointerId, knob: onKnob, x0: p.x, y0: p.y, moved: false, offset: S.knob.x - p.x };
+    if (onKnob) {
+      S.knob.grabbed = true;
+      S.bus.emit('sfx', { name: 'hinge', x: S.knob.x });
+    }
+    e.preventDefault();
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    const p = scenePoint(e);
+    if (drag && drag.id === e.pointerId) {
+      if (Math.hypot(p.x - drag.x0, p.y - drag.y0) > TAP_SLOP) drag.moved = true;
+      if (drag.knob) setTarget(p.x + drag.offset);
+      return;
+    }
+    const onKnob = insideKnob(S.knob, p.x, p.y);
+    const id = onKnob ? ID.NONE : sceneIdAt(F, p.x, p.y);
+    S.hover = id;
+    canvas.style.cursor = onKnob ? 'grab' : tappable(id) ? 'pointer' : 'default';
+  });
+
+  const end = (e, cancelled) => {
+    if (!drag || drag.id !== e.pointerId) return;
+    const p = scenePoint(e);
+    if (drag.knob) {
+      S.knob.grabbed = false;
+      if (!drag.moved && !cancelled) tapCar(S);
+    } else if (!drag.moved && !cancelled) {
+      const id = sceneIdAt(F, p.x, p.y);
+      if (tappable(id)) handleTap(S, id, p.x, p.y);
+    }
+    drag = null;
+  };
+  canvas.addEventListener('pointerup', (e) => end(e, false));
+  canvas.addEventListener('pointercancel', (e) => end(e, true));
+  canvas.addEventListener('pointerleave', () => {
+    if (!drag) S.hover = ID.NONE;
+  });
+
+  canvas.addEventListener('keydown', (e) => {
+    const k = S.knob;
+    let handled = true;
+    switch (e.key) {
+      case 'ArrowRight':
+      case 'ArrowUp':
+        setTarget(k.target + KEY_STEP * (e.shiftKey ? 4 : 1));
+        break;
+      case 'ArrowLeft':
+      case 'ArrowDown':
+        setTarget(k.target - KEY_STEP * (e.shiftKey ? 4 : 1));
+        break;
+      case 'PageUp':
+        setTarget(k.target + KEY_STEP * 4);
+        break;
+      case 'PageDown':
+        setTarget(k.target - KEY_STEP * 4);
+        break;
+      case 'Home':
+        setTarget(KNOB_MIN);
+        break;
+      case 'End':
+        setTarget(KNOB_MAX);
+        break;
+      case 'Enter':
+      case ' ':
+        setTarget(knobT(k.target) < 0.5 ? KNOB_MAX : KNOB_MIN);
+        S.bus.emit('sfx', { name: 'honk', x: S.car.x });
+        S.bus.emit('sfx', { name: 'honk', x: S.car.x, delay: 0.22 });
+        break;
+      default:
+        handled = false;
+    }
+    if (handled) {
+      audio.unlock();
+      resetIdle(S);
+      e.preventDefault();
+    }
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key !== 'h' && e.key !== 'H') return;
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    audio.unlock();
+    tapCar(S);
+  });
+}
+
+// ---- ui/readouts.js
+// Readouts (clock, speed, status), slider ARIA values and page colours that follow the evening.
+const PAGE = {
+  bg: [hex('#f6d3bf'), hex('#9a4f7e'), hex('#170b26')],
+  ink: [hex('#3a2131'), hex('#fff0f4'), hex('#f3e6ff')],
+};
+
+const css = (c, a = 1) => `rgba(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)}, ${a})`;
+
+function createReadouts(S, canvas) {
+  const el = {
+    clock: document.getElementById('clock'),
+    speed: document.getElementById('speed'),
+    status: document.getElementById('status'),
+  };
+  const root = document.documentElement.style;
+  const last = {};
+  const set = (key, value, apply) => {
+    if (last[key] === value) return;
+    last[key] = value;
+    apply(value);
+  };
+
+  return function update() {
+    const clock = clockText(S.t);
+    set('clock', clock, (v) => (el.clock.textContent = v));
+    set('speed', `${Math.round(Math.abs(S.car.v) * PX_TO_MPH)} mph`, (v) => (el.speed.textContent = v));
+    set('status', S.status, (v) => (el.status.textContent = v));
+    set('aria', Math.round(S.t * 100), (v) => {
+      canvas.setAttribute('aria-valuenow', String(v));
+      canvas.setAttribute('aria-valuetext', `${clock}, ${S.status}`);
+    });
+    const tq = Math.round(S.t * 200) / 200;
+    set('theme', tq, (t) => {
+      const bg = ramp3(PAGE.bg[0], PAGE.bg[1], PAGE.bg[2], t, 0.5);
+      const ink = t < 0.38 ? PAGE.ink[0] : mixc(PAGE.ink[1], PAGE.ink[2], smooth(0.38, 1, t));
+      root.setProperty('--bg', css(bg));
+      root.setProperty('--ink', css(ink));
+      root.setProperty('--muted', css(ink, 0.8));
+      root.setProperty('--line', css(ink, 0.22));
+    });
+  };
+}
+
+// ---- main.js
+// Boot: wire the world, the light pass, the glass shader, audio and UI into one loop.
+(function boot() {
+  const canvas = document.getElementById('switch');
+  const stage = document.getElementById('stage');
+  let glass = null;
+  try {
+    glass = createGlass(canvas);
+  } catch (err) {
+    console.error(err);
+  }
+  if (!glass) {
+    canvas.hidden = true;
+    document.getElementById('fallback').hidden = false;
+    return;
+  }
+
+  const S = createWorld();
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+  S.reducedMotion = reduced.matches;
+  reduced.addEventListener('change', (e) => (S.reducedMotion = e.matches));
+
+  const F = createFrame();
+  const B = createShadeBuffers();
+  const rail = new Uint8Array(W * H * 4);
+  const full = new Uint8Array(W * H * 4);
+  const audio = createAudio(S);
+  createInput(canvas, glass, S, F, audio);
+  const updateReadouts = createReadouts(S, canvas);
+
+  const soundBtn = document.getElementById('sound');
+  soundBtn.addEventListener('click', () => {
+    audio.unlock();
+    audio.setEnabled(!audio.enabled);
+    soundBtn.textContent = audio.enabled ? 'Sound on' : 'Sound off';
+    soundBtn.setAttribute('aria-pressed', String(audio.enabled));
+  });
+
+  const fit = () => glass.resize(Math.min(stage.clientWidth, 1000));
+  new ResizeObserver(fit).observe(stage);
+  fit();
+
+  canvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    document.getElementById('fallback').textContent = 'The WebGL context was lost. Reload the page to continue.';
+    document.getElementById('fallback').hidden = false;
+  });
+
+  function render() {
+    drawScene(F, S);
+    computeLevels(S);
+    const lights = buildLights(S);
+    const shape = knobShape(S.knob);
+    const flash = S.flash * (S.reducedMotion ? 0.2 : 0.55);
+    const dir = S.knob.v < -20 ? -1 : 1;
+    const rim = { x: dir > 0 ? S.knob.x - shape.hw : S.knob.x + shape.hw, dir, k: 0.45 + Math.min(0.5, Math.abs(S.knob.v) / 300) };
+    shade(F, lights, { levels: S.levels.rail, ambient: S.ambient, flash, rim, hover: S.hover }, B, rail);
+    shade(F, lights, { levels: S.levels.full, ambient: S.ambient, flash, rim: null, hover: 0 }, B, full);
+    glass.draw(rail, full, shape, S.night);
+  }
+
+  const STEP = 1 / 60;
+  let acc = 0;
+  let last = performance.now();
+  let frozen = false; // debug: the test hook drives the sim itself
+  function frame(now) {
+    acc += Math.min(0.1, (now - last) / 1000);
+    last = now;
+    while (acc >= STEP) {
+      if (!frozen) stepWorld(S, STEP);
+      acc -= STEP;
+    }
+    render();
+    audio.update();
+    updateReadouts();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // Test hook (only with ?debug): jump the evening, fire events, step the sim deterministically.
+  if (new URLSearchParams(location.search).has('debug')) {
+    window.NCS = {
+      S,
+      freeze(on = true) {
+        frozen = on;
+      },
+      seek(t) {
+        const x = knobX(t);
+        S.knob.x = S.knob.target = x;
+        S.knob.v = 0;
+        S.car.x = x;
+        S.car.v = 0;
+      },
+      step(seconds) {
+        for (let i = 0; i < Math.round(seconds * 60); i++) stepWorld(S, STEP);
+        render();
+      },
+      tap(id, x, y) {
+        handleTap(S, id, x, y);
+      },
+      tapCar() {
+        tapCar(S);
+      },
+      // The rail or full-lit scene as a PNG data URL, scaled up with nearest sampling.
+      raw(which = 'rail', zoom = 6) {
+        const src = which === 'full' ? full : rail;
+        const c = document.createElement('canvas');
+        c.width = W;
+        c.height = H;
+        c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(src), W, H), 0, 0);
+        const z = document.createElement('canvas');
+        z.width = W * zoom;
+        z.height = H * zoom;
+        const g = z.getContext('2d');
+        g.imageSmoothingEnabled = false;
+        g.drawImage(c, 0, 0, z.width, z.height);
+        return z.toDataURL('image/png');
+      },
+      audio,
+      ID,
+    };
+  }
+})();
+
+})();
+</script>
+</body>
+</html>

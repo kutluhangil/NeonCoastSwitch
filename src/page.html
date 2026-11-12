@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neon Coast Switch</title>
+<meta name="description" content="Material Studies No. 066 — a pixel-art coast town inside a glass toggle switch. WebGL + Web Audio.">
+<style>
+  :root {
+    --bg: #f6d3bf;
+    --ink: #3a2131;
+    --muted: rgba(58, 33, 49, 0.8);
+    --line: rgba(58, 33, 49, 0.22);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  main {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: clamp(28px, 6vw, 64px) 16px 48px;
+  }
+  .kicker {
+    margin: 0;
+    font: 500 12px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  h1 {
+    margin: 10px 0 6px;
+    font-style: italic;
+    font-weight: 400;
+    font-size: clamp(42px, 8vw, 84px);
+    line-height: 0.98;
+    letter-spacing: -0.015em;
+  }
+  .caption {
+    margin: 0;
+    max-width: 36em;
+    font-size: clamp(16px, 2.2vw, 19px);
+    line-height: 1.45;
+    color: var(--muted);
+  }
+  .stage {
+    display: flex;
+    justify-content: center;
+    margin: clamp(18px, 4vw, 36px) 0 clamp(8px, 2vw, 16px);
+  }
+  canvas {
+    display: block;
+    max-width: 100%;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+    outline: none;
+    border-radius: 48px;
+  }
+  canvas:focus-visible { box-shadow: 0 0 0 2px var(--line); }
+  .readouts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .readouts div { padding: 12px 0; }
+  .readouts div + div { padding-left: 14px; border-left: 1px solid var(--line); }
+  .label {
+    display: block;
+    font: 500 11px/1.3 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .value {
+    display: block;
+    margin-top: 4px;
+    font: 400 clamp(17px, 3vw, 24px)/1.2 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 24px;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 14px;
+  }
+  .hint {
+    margin: 0;
+    max-width: 44em;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  button.sound {
+    appearance: none;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--ink);
+    font: 500 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 10px 16px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  button.sound:hover { background: var(--line); }
+  button.sound:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .fallback {
+    margin: 24px 0;
+    padding: 16px;
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="kicker">Material Studies / No. 066 · WebGL + Web Audio</p>
+  <h1>Neon Coast Switch.</h1>
+  <p class="caption">Golden hour to midnight on the coast road. Slide the amber glass and the street comes on behind it.</p>
+  <div class="stage" id="stage">
+    <canvas id="switch" tabindex="0" role="slider" aria-label="Evening on the coast road" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="18:30"></canvas>
+  </div>
+  <p class="fallback" id="fallback" hidden>This study needs WebGL2, which this browser does not offer.</p>
+  <section class="readouts">
+    <div><span class="label">Clock</span><span class="value" id="clock">18:30</span></div>
+    <div><span class="label">Speed</span><span class="value" id="speed">0 mph</span></div>
+    <div><span class="label">Status</span><span class="value" id="status">Cruising</span></div>
+  </section>
+  <div class="foot">
+    <p class="hint">Drag the knob or use the arrow keys, Home and End; Enter or Space sends it to the far end. Tap anything in town. H honks.</p>
+    <button class="sound" id="sound" type="button" aria-pressed="true">Sound on</button>
+  </div>
+</main>
+<script>
+/*BUNDLE*/
+</script>
+</body>
+</html>

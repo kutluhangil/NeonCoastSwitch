@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "italic-serif-display",
+        "value": "*",
+        "files": [
+          "src/page.html"
+        ],
+        "createdAt": "2026-11-12T18:38:24.681Z",
+        "reason": "spec: series layout in docs/material-studies-prompts.md (Daybreak Switch No. 062, the layout reference for No. 066) prescribes an italic serif title; user asked to follow the prompt exactly"
+      },
+      {
+        "rule": "hero-eyebrow-chip",
+        "value": "*",
+        "files": [
+          "src/page.html"
+        ],
+        "createdAt": "2026-11-12T18:38:24.695Z",
+        "reason": "spec: series layout in docs/material-studies-prompts.md prescribes the 'Material Studies / No. 0xx · WebGL + Web Audio' kicker above the title; user asked to follow the prompt exactly"
+      }
+    ]
+  }
+}
