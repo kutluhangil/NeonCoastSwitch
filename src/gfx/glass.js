@@ -17,6 +17,7 @@ uniform vec2 uOrigin;   // track top-left, device px
 uniform vec2 uKnob;     // knob centre, scene px
 uniform vec2 uKnobHalf; // knob half size after stretch, scene px
 uniform float uNight;
+uniform float uBezelNight; // bezel colour, driven separately so an embedding page can keep it dark
 out vec4 outColor;
 
 const vec2 SCENE = vec2(${W}.0, ${H}.0);
@@ -59,13 +60,13 @@ void main() {
   float dB = sdBezel(p);
   vec3 bezDay = vec3(0.97, 0.93, 0.86);
   vec3 bezNight = vec3(0.22, 0.12, 0.24);
-  vec3 bez = mix(bezDay, bezNight, uNight);
+  vec3 bez = mix(bezDay, bezNight, uBezelNight);
   if (dB < aa) {
     float ringT = clamp(-dB / BEZEL, 0.0, 1.0);          // 0 outer edge → 1 inner edge
     float vy = (p.y - SCENE.y * 0.5) / (SCENE.y * 0.5 + BEZEL);
     float dome = sin(ringT * 3.14159);
     vec3 c = bez * (0.86 + 0.22 * dome - 0.16 * vy);
-    c += vec3(1.0) * pow(max(0.0, -vy), 3.0) * smoothstep(0.0, 0.25, ringT) * (1.0 - ringT) * mix(0.35, 0.12, uNight);
+    c += vec3(1.0) * pow(max(0.0, -vy), 3.0) * smoothstep(0.0, 0.25, ringT) * (1.0 - ringT) * mix(0.35, 0.12, uBezelNight);
     c *= 1.0 - 0.25 * smoothstep(0.75, 1.0, ringT);       // lip toward the track
     float a = smoothstep(aa, -aa, dB);
     col = mix(col, c, a);
@@ -163,7 +164,7 @@ function createGlass(canvas) {
   const texRail = makeTex(0);
   const texFull = makeTex(1);
   const U = {};
-  for (const name of ['uRail', 'uFull', 'uRes', 'uScale', 'uOrigin', 'uKnob', 'uKnobHalf', 'uNight']) U[name] = gl.getUniformLocation(prog, name);
+  for (const name of ['uRail', 'uFull', 'uRes', 'uScale', 'uOrigin', 'uKnob', 'uKnobHalf', 'uNight', 'uBezelNight']) U[name] = gl.getUniformLocation(prog, name);
   gl.uniform1i(U.uRail, 0);
   gl.uniform1i(U.uFull, 1);
 
@@ -184,7 +185,7 @@ function createGlass(canvas) {
     gl.viewport(0, 0, canvas.width, canvas.height);
   }
 
-  function draw(rail, full, knob, night) {
+  function draw(rail, full, knob, night, bezelNight = night) {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texRail);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, rail);
@@ -197,6 +198,7 @@ function createGlass(canvas) {
     gl.uniform2f(U.uKnob, knob.x, H / 2);
     gl.uniform2f(U.uKnobHalf, knob.hw, knob.hh);
     gl.uniform1f(U.uNight, night);
+    gl.uniform1f(U.uBezelNight, bezelNight);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
